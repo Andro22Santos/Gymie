@@ -12,6 +12,7 @@ import WaterPage from './pages/WaterPage';
 import WorkoutPage from './pages/WorkoutPage';
 import ProgressPage from './pages/ProgressPage';
 import SettingsPage from './pages/SettingsPage';
+import AchievementsPage from './pages/AchievementsPage';
 import BottomNav from './components/BottomNav';
 
 function PrivateRoute({ children }) {
