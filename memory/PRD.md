@@ -1,12 +1,12 @@
 # Shape Inexplicavel - PRD
 
 ## Problem Statement
-Fitness/habit companion app with AI conversational chat. Centralizes daily routine tracking (meals, water, workouts, reminders) with configurable AI persona (Tactical/Coach/Direct/Neutral). Differentiator: tone + routine + execution, not just generic chat.
+Fitness/habit companion app with AI conversational chat. Centralizes daily routine tracking (meals, water, workouts, reminders) with configurable AI persona (Tactical/Coach/Direct/Neutral). Differentiator: tone + routine + execution + shared context, not just generic chat.
 
 ## Architecture
 - **Frontend**: React.js + Tailwind CSS (mobile-first responsive, dark theme)
 - **Backend**: FastAPI (Python)
-- **Database**: MongoDB (collections: users, user_profiles, meals, water_logs, reminders, chat_threads, chat_messages, daily_checkins, workout_plans, workout_sessions, body_metrics, memory_facts, weekly_summaries)
+- **Database**: MongoDB (collections: users, user_profiles, meals, water_logs, reminders, chat_threads, chat_messages, daily_checkins, workout_plans, workout_sessions, body_metrics, memory_facts, weekly_summaries, agent_insights)
 - **AI**: OpenAI GPT-5.2 via emergentintegrations library (EMERGENT_LLM_KEY)
 - **Auth**: JWT + refresh tokens
 - **Charts**: Recharts (weight/progress)
@@ -47,20 +47,38 @@ Fitness/habit companion app with AI conversational chat. Centralizes daily routi
 - [x] Photo upload for meals (base64 storage)
 - [x] Exercise progression tracking (weight/reps/volume over time per exercise)
 - [x] Weekly summary with auto-stats (treinos, agua, peso, check-ins)
-- [x] Backend: 100% (25/25 tests passed)
-- [x] Frontend: 95% all features functional
+
+### Phase 4 - Feb 24, 2026
+- [x] Multi-Mode AI System (not isolated agents - 1 shared context)
+  - Companheiro (COMP): Motivação, rotina, check-ins
+  - Alimentação (NUTR): Refeições, macros, sugestões
+  - Treino (TREN): Exercícios, carga, recuperação
+- [x] Mode selector in ChatPage with clear "Modo: X" display
+- [x] Shared context note: "Todos os modos compartilham seu contexto"
+- [x] Debug panel for orchestration validation (status, persona, fatos, decisions)
+- [x] Actionable Insights (HomePage + ChatPage)
+  - Water below goal alerts
+  - Protein deficit warnings
+  - Workout day reminders
+  - Next mission notifications
+  - Check-in reminders
+- [x] AI Meal Analysis with standardized contract
+  - success, analysis_text, estimated_macros, confidence, suggestions
+  - Auto-fills macro fields in meal form
+- [x] Smart routing: messages about "macros" → NUTR, "treino" → TREN
+- [x] BottomNav z-index fix (90) - no modal overlap
 
 ## Test Results Summary
 - Phase 1: Backend 100% (21/21), Frontend 95%
 - Phase 2: Backend 100% (14/14), Frontend 98%
 - Phase 3: Backend 100% (25/25), Frontend 95%
+- Phase 4: Backend 100% (11/11), Frontend 100%
 
 ## Prioritized Backlog
 
-### P0 (Next - Phase 4/5)
+### P0 (Next - Phase 5)
 - Push notifications (Expo/FCM)
 - Password reset flow (email sending)
-- Meal analysis from photo (AI vision)
 
 ### P1
 - Google Auth integration
@@ -77,8 +95,36 @@ Fitness/habit companion app with AI conversational chat. Centralizes daily routi
 - Custom workout templates
 
 ## Next Tasks
-1. Push notifications implementation
-2. AI-powered meal photo analysis
-3. Google Auth
-4. Data export
-5. Mobile app migration
+1. Push notifications implementation (Expo/FCM)
+2. Google Auth
+3. Data export
+4. Mobile app migration
+
+## API Reference (Phase 4)
+
+### New/Updated Endpoints
+- `GET /api/agents/insights` - Returns actionable insights + context_summary
+- `GET /api/agents/debug` - Debug info for orchestration validation
+- `POST /api/meals/analyze` - AI meal analysis with standardized contract
+- `GET /api/agents/classify` - Test message classification
+
+### Standardized Meal Analysis Contract
+```json
+{
+  "success": true,
+  "analysis_text": "...",
+  "estimated_macros": {
+    "calories": 610,
+    "protein": 42,
+    "carbs": 68,
+    "fat": 18,
+    "fiber": 0,
+    "description": "..."
+  },
+  "confidence": "medium",
+  "suggestions": [],
+  "agent_name": "Foto",
+  "agent_code": "FOTO",
+  "analyzed_at": "2026-02-24T..."
+}
+```
