@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
-import { Dumbbell, Plus, Play, Check, ChevronDown, ChevronUp, X, Clock, Weight, RotateCcw, Trophy } from 'lucide-react';
+import { Dumbbell, Plus, Play, Check, ChevronDown, ChevronUp, X, Clock, Weight, RotateCcw, Trophy, TrendingUp } from 'lucide-react';
 
 export default function WorkoutPage() {
   const [plans, setPlans] = useState([]);
@@ -12,6 +12,8 @@ export default function WorkoutPage() {
   const [showAddPlan, setShowAddPlan] = useState(false);
   const [newPlan, setNewPlan] = useState({ name: '', plan_type: 'A', exercises: [] });
   const [newExercise, setNewExercise] = useState({ name: '', sets: 3, reps: '12', weight_kg: 0, rest_seconds: 60 });
+  const [exerciseHistory, setExerciseHistory] = useState(null);
+  const [selectedExercise, setSelectedExercise] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
