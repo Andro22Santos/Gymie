@@ -37,9 +37,10 @@ export default function MealsPage() {
         protein: parseFloat(form.protein) || 0,
         carbs: parseFloat(form.carbs) || 0,
         fat: parseFloat(form.fat) || 0,
+        photo_url: form.photo_url || null,
       });
       setModalOpen(false);
-      setForm({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '' });
+      setForm({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '', photo_url: '' });
       fetchMeals();
     } catch (err) { console.error(err); }
   };
