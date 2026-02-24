@@ -1159,12 +1159,55 @@ async def delete_memory_fact(fact_id: str, user=Depends(get_current_user)):
     return {"message": "Fato removido"}
 
 
-# ── Photo Upload ─────────────────────────────────────────────
+# ── Multi-Agent System ───────────────────────────────────────
 
-@app.post("/api/upload/photo")
-async def upload_photo(user=Depends(get_current_user)):
-    from fastapi import File, UploadFile
-    return {"message": "Upload de foto disponivel em breve. Use photo_url no campo de refeicao."}
+@app.get("/api/agents")
+async def get_available_agents():
+    return {"agents": get_agents_info()}
+
+
+@app.get("/api/agents/insights")
+async def get_agent_insights(user=Depends(get_current_user)):
+    db = get_db()
+    insights = await db.agent_insights.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(30)
+    return {"insights": insights}
+
+
+class MealAnalyzeRequest(BaseModel):
+    description: str
+
+@app.post("/api/meals/analyze")
+async def analyze_meal(req: MealAnalyzeRequest, user=Depends(get_current_user)):
+    """Photo/text analysis of a meal - estimates macros using AI."""
+    try:
+        db = get_db()
+        profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+        persona_style = profile.get("persona_style", "tactical") if profile else "tactical"
+
+        result = await analyze_meal_photo(
+            api_key=EMERGENT_LLM_KEY,
+            description=req.description,
+            persona_style=persona_style,
+        )
+        return result
+    except Exception as e:
+        print(f"Meal analysis error: {e}")
+        return {
+            "analysis_text": "Nao foi possivel analisar a refeicao automaticamente.",
+            "estimated_macros": {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "description": req.description},
+            "agent_name": "Foto",
+            "agent_code": "FOTO",
+        }
+
+
+@app.get("/api/agents/classify")
+async def classify_message(message: str = Query(...)):
+    agent_id = classify_intent(message)
+    agents_info = {a["id"]: a for a in get_agents_info()}
+    agent = agents_info.get(agent_id, agents_info.get("companion"))
+    return {"agent_id": agent_id, "agent": agent}
 
 
 # ── Seed Data ────────────────────────────────────────────────
