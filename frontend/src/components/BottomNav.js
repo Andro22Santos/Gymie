@@ -17,8 +17,8 @@ export default function BottomNav() {
   return (
     <nav
       data-testid="bottom-nav"
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-bg/90 backdrop-blur-lg border-t border-border-default z-50"
-      style={{ height: '64px' }}
+      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-bg/95 backdrop-blur-lg border-t border-border-default"
+      style={{ height: '64px', zIndex: 90 }}
     >
       <div className="flex items-center justify-around h-full px-2">
         {tabs.map((tab) => {
