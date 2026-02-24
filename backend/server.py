@@ -4,13 +4,16 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 import jwt as pyjwt
 import bcrypt
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from ai_service import generate_ai_response, generate_reminder_message
 from agents import orchestrate_response, analyze_meal_photo, get_agents_info, classify_intent
@@ -21,6 +24,9 @@ MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET")
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+
+# Rate limiting setup
+limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
