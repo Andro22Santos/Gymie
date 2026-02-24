@@ -2,7 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
-import { Target, MessageSquare, UtensilsCrossed, Droplet, Dumbbell, Clock, Check, X, Timer, ChevronRight, Zap, Moon, Smile, Settings } from 'lucide-react';
+import { Target, MessageSquare, UtensilsCrossed, Droplet, Dumbbell, Clock, Check, X, Timer, ChevronRight, Zap, Moon, Smile, Settings, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+
+const ICON_MAP = {
+  droplet: Droplet,
+  utensils: UtensilsCrossed,
+  dumbbell: Dumbbell,
+  target: Target,
+  smile: Smile,
+};
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -11,6 +19,8 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkin, setCheckin] = useState({ sleep_quality: 3, energy_level: 3, mood: 'neutro' });
+  const [actionableInsights, setActionableInsights] = useState([]);
+  const [showInsights, setShowInsights] = useState(true);
 
   const fetchDashboard = useCallback(async () => {
     try {
