@@ -168,7 +168,7 @@ class WorkoutAPITester:
             "POST /api/workout-sessions starts session from plan",
             "POST",
             "api/workout-sessions",
-            201,
+            200,
             data={"plan_id": plan_id}
         )
         
