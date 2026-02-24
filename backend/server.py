@@ -1374,6 +1374,62 @@ async def classify_message(message: str = Query(...)):
     return {"agent_id": agent_id, "agent": agent}
 
 
+@app.get("/api/agents/debug")
+async def get_agent_debug(user=Depends(get_current_user)):
+    """
+    Debug endpoint for orchestration validation (dev mode).
+    Returns current context state, last decisions, and system health.
+    """
+    db = get_db()
+    uid = user["user_id"]
+    date = today_str()
+    
+    # Get last messages with agent info
+    last_messages = await db.chat_messages.find(
+        {"user_id": uid, "role": "assistant"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(5)
+    
+    # Get context summary
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+    memory_facts = await db.memory_facts.find({"user_id": uid}, {"_id": 0}).to_list(10)
+    agent_insights = await db.agent_insights.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(10)
+    
+    # Build debug info
+    recent_decisions = []
+    for msg in last_messages:
+        recent_decisions.append({
+            "timestamp": msg.get("created_at", "?")[:19],
+            "mode_selected": msg.get("mode", "companion"),
+            "agent_routed": msg.get("agent_code", "?"),
+            "agent_name": msg.get("agent_name", "?"),
+            "message_preview": msg.get("content", "")[:80] + "..." if len(msg.get("content", "")) > 80 else msg.get("content", ""),
+        })
+    
+    context_loaded = {
+        "profile_loaded": profile is not None,
+        "persona_style": profile.get("persona_style", "tactical") if profile else "tactical",
+        "memory_facts_count": len(memory_facts),
+        "agent_insights_count": len(agent_insights),
+        "training_days": profile.get("training_days", []) if profile else [],
+        "calorie_target": profile.get("calorie_target", 2000) if profile else 2000,
+        "protein_target": profile.get("protein_target", 150) if profile else 150,
+        "water_goal_ml": profile.get("water_goal_ml", 2500) if profile else 2500,
+    }
+    
+    agents_available = get_agents_info()
+    
+    return {
+        "orchestration_status": "operational",
+        "context_loaded": context_loaded,
+        "recent_decisions": recent_decisions,
+        "agents_available": [{"code": a["code"], "name": a["name"], "color": a["color"]} for a in agents_available],
+        "memory_facts_sample": [f.get("fact", "")[:50] for f in memory_facts[:3]],
+        "last_insights": [{"agent": i.get("agent"), "insight": i.get("insight", "")[:50]} for i in agent_insights[:3]],
+        "fallback_agent": "companion",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ── Seed Data ────────────────────────────────────────────────
 
 @app.post("/api/seed")
