@@ -745,6 +745,228 @@ async def update_persona(req: dict, user=Depends(get_current_user)):
     return {"message": "Persona atualizada", "persona_style": style}
 
 
+# ── Workout Plans ────────────────────────────────────────────
+
+@app.get("/api/workout-plans")
+async def get_workout_plans(user=Depends(get_current_user)):
+    db = get_db()
+    plans = await db.workout_plans.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(20)
+    return {"plans": plans}
+
+
+@app.post("/api/workout-plans")
+async def create_workout_plan(req: WorkoutPlanCreate, user=Depends(get_current_user)):
+    db = get_db()
+    plan = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "name": req.name,
+        "plan_type": req.plan_type,
+        "exercises": req.exercises,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.workout_plans.insert_one(plan)
+    del plan["_id"]
+    return plan
+
+
+@app.put("/api/workout-plans/{plan_id}")
+async def update_workout_plan(plan_id: str, req: WorkoutPlanCreate, user=Depends(get_current_user)):
+    db = get_db()
+    update_data = {"name": req.name, "plan_type": req.plan_type, "exercises": req.exercises, "updated_at": datetime.now(timezone.utc).isoformat()}
+    result = await db.workout_plans.update_one({"id": plan_id, "user_id": user["user_id"]}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Plano nao encontrado")
+    plan = await db.workout_plans.find_one({"id": plan_id}, {"_id": 0})
+    return plan
+
+
+@app.delete("/api/workout-plans/{plan_id}")
+async def delete_workout_plan(plan_id: str, user=Depends(get_current_user)):
+    db = get_db()
+    result = await db.workout_plans.delete_one({"id": plan_id, "user_id": user["user_id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Plano nao encontrado")
+    return {"message": "Plano removido"}
+
+
+# ── Workout Sessions ─────────────────────────────────────────
+
+@app.get("/api/workout-sessions")
+async def get_workout_sessions(date: str = Query(default=None), user=Depends(get_current_user)):
+    db = get_db()
+    query = {"user_id": user["user_id"]}
+    if date:
+        query["date"] = date
+    sessions = await db.workout_sessions.find(query, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"sessions": sessions}
+
+
+@app.post("/api/workout-sessions")
+async def start_workout_session(req: WorkoutSessionStart, user=Depends(get_current_user)):
+    db = get_db()
+    plan = await db.workout_plans.find_one({"id": req.plan_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plano nao encontrado")
+    session_exercises = []
+    for ex in plan.get("exercises", []):
+        sets_list = []
+        for s in range(ex.get("sets", 3)):
+            sets_list.append({"set_number": s + 1, "reps": 0, "weight_kg": ex.get("weight_kg", 0) or 0, "completed": False})
+        session_exercises.append({
+            "name": ex["name"],
+            "target_sets": ex.get("sets", 3),
+            "target_reps": ex.get("reps", "12"),
+            "rest_seconds": ex.get("rest_seconds", 60),
+            "sets": sets_list,
+        })
+    session = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "plan_id": req.plan_id,
+        "plan_name": plan["name"],
+        "plan_type": plan.get("plan_type", "A"),
+        "date": today_str(),
+        "status": "active",
+        "exercises": session_exercises,
+        "notes": "",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.workout_sessions.insert_one(session)
+    del session["_id"]
+    return session
+
+
+@app.put("/api/workout-sessions/{session_id}")
+async def update_workout_session(session_id: str, req: WorkoutSessionUpdate, user=Depends(get_current_user)):
+    db = get_db()
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if req.exercises is not None:
+        update_data["exercises"] = req.exercises
+    if req.notes is not None:
+        update_data["notes"] = req.notes
+    result = await db.workout_sessions.update_one({"id": session_id, "user_id": user["user_id"]}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Sessao nao encontrada")
+    session = await db.workout_sessions.find_one({"id": session_id}, {"_id": 0})
+    return session
+
+
+@app.post("/api/workout-sessions/{session_id}/complete")
+async def complete_workout_session(session_id: str, user=Depends(get_current_user)):
+    db = get_db()
+    result = await db.workout_sessions.update_one(
+        {"id": session_id, "user_id": user["user_id"]},
+        {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Sessao nao encontrada")
+    session = await db.workout_sessions.find_one({"id": session_id}, {"_id": 0})
+    return session
+
+
+# ── Body Metrics ─────────────────────────────────────────────
+
+@app.get("/api/body-metrics")
+async def get_body_metrics(user=Depends(get_current_user)):
+    db = get_db()
+    metrics = await db.body_metrics.find({"user_id": user["user_id"]}, {"_id": 0}).sort("date", -1).to_list(90)
+    return {"metrics": metrics}
+
+
+@app.post("/api/body-metrics")
+async def create_body_metric(req: BodyMetricCreate, user=Depends(get_current_user)):
+    db = get_db()
+    date = today_str()
+    metric = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "date": date,
+        "weight": req.weight,
+        "body_fat_pct": req.body_fat_pct,
+        "notes": req.notes,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.body_metrics.update_one(
+        {"user_id": user["user_id"], "date": date},
+        {"$set": metric},
+        upsert=True,
+    )
+    return metric
+
+
+# ── Progress ─────────────────────────────────────────────────
+
+@app.get("/api/progress/summary")
+async def get_progress_summary(user=Depends(get_current_user)):
+    db = get_db()
+    uid = user["user_id"]
+    now = datetime.now(timezone.utc)
+    week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    today = today_str()
+
+    # Weight trend
+    metrics = await db.body_metrics.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(30)
+    latest_weight = metrics[0]["weight"] if metrics else None
+    weight_change = None
+    if len(metrics) >= 2:
+        weight_change = round(metrics[0]["weight"] - metrics[-1]["weight"], 1)
+
+    # Workouts this week
+    week_sessions = await db.workout_sessions.find(
+        {"user_id": uid, "date": {"$gte": week_ago}, "status": "completed"}, {"_id": 0}
+    ).to_list(20)
+    workouts_this_week = len(week_sessions)
+
+    # Water average (last 7 days)
+    water_pipeline = [
+        {"$match": {"user_id": uid, "date": {"$gte": week_ago}}},
+        {"$group": {"_id": "$date", "total": {"$sum": "$amount_ml"}}},
+    ]
+    water_daily = await db.water_logs.aggregate(water_pipeline).to_list(7)
+    avg_water = round(sum(d["total"] for d in water_daily) / max(len(water_daily), 1)) if water_daily else 0
+
+    # Meals consistency
+    meals_pipeline = [
+        {"$match": {"user_id": uid, "date": {"$gte": week_ago}}},
+        {"$group": {"_id": "$date", "count": {"$sum": 1}}},
+    ]
+    meals_daily = await db.meals.aggregate(meals_pipeline).to_list(7)
+    days_with_meals = len(meals_daily)
+
+    # Checkin consistency
+    checkins = await db.daily_checkins.find({"user_id": uid, "date": {"$gte": week_ago}}, {"_id": 0}).to_list(7)
+    checkin_days = len(checkins)
+    avg_energy = round(sum(c.get("energy_level", 0) for c in checkins) / max(len(checkins), 1), 1) if checkins else 0
+    avg_sleep = round(sum(c.get("sleep_quality", 0) for c in checkins) / max(len(checkins), 1), 1) if checkins else 0
+
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+
+    return {
+        "latest_weight": latest_weight,
+        "weight_change": weight_change,
+        "goal_weight": profile.get("goal_weight") if profile else None,
+        "workouts_this_week": workouts_this_week,
+        "training_days_target": len(profile.get("training_days", [])) if profile else 4,
+        "avg_water_ml": avg_water,
+        "water_goal_ml": profile.get("water_goal_ml", 2500) if profile else 2500,
+        "days_with_meals": days_with_meals,
+        "checkin_days": checkin_days,
+        "avg_energy": avg_energy,
+        "avg_sleep": avg_sleep,
+        "weight_history": [{"date": m["date"], "weight": m["weight"]} for m in reversed(metrics[:30])],
+    }
+
+
+@app.get("/api/progress/weight")
+async def get_weight_history(user=Depends(get_current_user)):
+    db = get_db()
+    metrics = await db.body_metrics.find({"user_id": user["user_id"]}, {"_id": 0}).sort("date", 1).to_list(90)
+    return {"metrics": metrics}
+
+
 # ── Seed Data ────────────────────────────────────────────────
 
 @app.post("/api/seed")
