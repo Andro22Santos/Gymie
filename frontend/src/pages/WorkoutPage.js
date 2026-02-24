@@ -32,6 +32,14 @@ export default function WorkoutPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const fetchExerciseHistory = async (exerciseName) => {
+    try {
+      const res = await api.get(`/api/progress/exercise-history?exercise_name=${encodeURIComponent(exerciseName)}`);
+      setExerciseHistory(res.data);
+      setSelectedExercise(exerciseName);
+    } catch (err) { console.error(err); }
+  };
+
   const startSession = async (planId) => {
     try {
       const res = await api.post('/api/workout-sessions', { plan_id: planId });
