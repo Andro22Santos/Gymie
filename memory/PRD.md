@@ -123,6 +123,7 @@ Color palette:
 ## API Reference
 
 ### New Endpoints
+- `GET /api/streak` - Get current streak, longest streak, total checkins
 - `POST /api/auth/google/session` - Exchange Google session for JWT
 - `POST /api/push/register` - Register push token
 - `DELETE /api/push/unregister` - Remove push token
