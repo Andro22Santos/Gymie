@@ -1048,6 +1048,72 @@ async def seed_data():
     }
     await db.chat_threads.insert_one(thread)
 
+    # Workout Plans ABC
+    plans = [
+        {
+            "id": str(uuid.uuid4()), "user_id": user_id, "name": "Treino A - Peito + Triceps", "plan_type": "A",
+            "exercises": [
+                {"name": "Supino reto", "sets": 4, "reps": "10", "weight_kg": 60, "rest_seconds": 90, "notes": ""},
+                {"name": "Supino inclinado", "sets": 3, "reps": "12", "weight_kg": 50, "rest_seconds": 75, "notes": ""},
+                {"name": "Crucifixo", "sets": 3, "reps": "12", "weight_kg": 16, "rest_seconds": 60, "notes": "Halteres"},
+                {"name": "Triceps testa", "sets": 3, "reps": "12", "weight_kg": 25, "rest_seconds": 60, "notes": ""},
+                {"name": "Triceps corda", "sets": 3, "reps": "15", "weight_kg": 20, "rest_seconds": 60, "notes": "Polia"},
+            ],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+        {
+            "id": str(uuid.uuid4()), "user_id": user_id, "name": "Treino B - Costas + Biceps", "plan_type": "B",
+            "exercises": [
+                {"name": "Puxada frontal", "sets": 4, "reps": "10", "weight_kg": 55, "rest_seconds": 90, "notes": ""},
+                {"name": "Remada curvada", "sets": 3, "reps": "10", "weight_kg": 50, "rest_seconds": 75, "notes": "Barra"},
+                {"name": "Remada baixa", "sets": 3, "reps": "12", "weight_kg": 45, "rest_seconds": 60, "notes": "Polia"},
+                {"name": "Rosca direta", "sets": 3, "reps": "12", "weight_kg": 28, "rest_seconds": 60, "notes": ""},
+                {"name": "Rosca martelo", "sets": 3, "reps": "12", "weight_kg": 14, "rest_seconds": 60, "notes": "Halteres"},
+            ],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+        {
+            "id": str(uuid.uuid4()), "user_id": user_id, "name": "Treino C - Pernas + Ombros", "plan_type": "C",
+            "exercises": [
+                {"name": "Agachamento livre", "sets": 4, "reps": "10", "weight_kg": 80, "rest_seconds": 120, "notes": ""},
+                {"name": "Leg press 45", "sets": 3, "reps": "12", "weight_kg": 180, "rest_seconds": 90, "notes": ""},
+                {"name": "Stiff", "sets": 3, "reps": "12", "weight_kg": 40, "rest_seconds": 75, "notes": ""},
+                {"name": "Desenvolvimento", "sets": 3, "reps": "12", "weight_kg": 24, "rest_seconds": 60, "notes": "Halteres"},
+                {"name": "Elevacao lateral", "sets": 3, "reps": "15", "weight_kg": 10, "rest_seconds": 60, "notes": ""},
+            ],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    ]
+    await db.workout_plans.insert_many(plans)
+
+    # Body metrics (last 14 days)
+    body_metrics = []
+    for i in range(14, 0, -1):
+        d = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
+        w = 85.0 - (i * 0.15) + (0.1 if i % 3 == 0 else -0.05)
+        body_metrics.append({
+            "id": str(uuid.uuid4()), "user_id": user_id, "date": d,
+            "weight": round(w, 1), "body_fat_pct": None, "notes": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    await db.body_metrics.insert_many(body_metrics)
+
+    # Completed workout sessions (last week)
+    completed_sessions = []
+    for i, plan in enumerate(plans[:2]):
+        d = (datetime.now(timezone.utc) - timedelta(days=3 + i * 2)).strftime("%Y-%m-%d")
+        session_exercises = []
+        for ex in plan["exercises"]:
+            sets_list = [{"set_number": s + 1, "reps": int(ex["reps"]), "weight_kg": ex.get("weight_kg", 0), "completed": True} for s in range(ex["sets"])]
+            session_exercises.append({"name": ex["name"], "target_sets": ex["sets"], "target_reps": ex["reps"], "rest_seconds": ex.get("rest_seconds", 60), "sets": sets_list})
+        completed_sessions.append({
+            "id": str(uuid.uuid4()), "user_id": user_id, "plan_id": plan["id"], "plan_name": plan["name"],
+            "plan_type": plan["plan_type"], "date": d, "status": "completed", "exercises": session_exercises,
+            "notes": "", "started_at": datetime.now(timezone.utc).isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    await db.workout_sessions.insert_many(completed_sessions)
+
     return {"message": "Seed criado com sucesso", "user_id": user_id, "email": "demo@shape.com", "password": "demo123"}
 
 
