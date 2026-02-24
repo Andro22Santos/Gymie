@@ -647,7 +647,8 @@ async def get_messages(thread_id: str, user=Depends(get_current_user)):
 
 
 @app.post("/api/chat/threads/{thread_id}/messages")
-async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def send_message(request: Request, thread_id: str, req: ChatMessageCreate, user=Depends(get_current_user)):
     db = get_db()
     uid = user["user_id"]
 
