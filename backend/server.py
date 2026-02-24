@@ -1230,6 +1230,16 @@ async def seed_data():
     }
     await db.chat_threads.insert_one(thread)
 
+    # Memory Facts
+    memory_facts = [
+        {"id": str(uuid.uuid4()), "user_id": user_id, "fact": "Maior dificuldade com alimentacao a noite, tende a comer carboidrato pesado", "category": "nutrition", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": str(uuid.uuid4()), "user_id": user_id, "fact": "Transito longo no final do dia, chega cansado para treinar", "category": "routine", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": str(uuid.uuid4()), "user_id": user_id, "fact": "Treina melhor no meio-dia quando possivel", "category": "workout", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": str(uuid.uuid4()), "user_id": user_id, "fact": "Prefere lembretes firmes e diretos", "category": "preferences", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": str(uuid.uuid4()), "user_id": user_id, "fact": "Gosta de banana + whey como pre-treino rapido", "category": "nutrition", "created_at": datetime.now(timezone.utc).isoformat()},
+    ]
+    await db.memory_facts.insert_many(memory_facts)
+
     # Workout Plans ABC
     plans = [
         {
