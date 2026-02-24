@@ -108,6 +108,11 @@ export default function MealsPage() {
         <div className="space-y-2">
           {meals.map((meal) => (
             <div key={meal.id} data-testid="meal-item" className="bg-surface border border-border-default p-4 flex items-start gap-3">
+              {meal.photo_url && (
+                <div className="w-14 h-14 bg-surface-hl border border-border-default overflow-hidden flex-shrink-0">
+                  <img src={meal.photo_url} alt="" className="w-full h-full object-cover" />
+                </div>
+              )}
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <Clock size={12} className="text-txt-muted" />
