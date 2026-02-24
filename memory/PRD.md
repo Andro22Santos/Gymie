@@ -55,6 +55,7 @@ Gymie é um app companheiro de hábitos fitness com IA conversacional. Centraliz
 - [x] **Google Auth** - Emergent Google Auth integration
 - [x] **Push Notifications** - Architecture ready (mock implementation)
 - [x] **Rate Limiting** - slowapi middleware on critical endpoints
+- [x] **Streak Counter** - Consecutive days tracker with visual badge
 - [x] Renamed to "Gymie" throughout the app
 - [x] New design system: gymie-card, gymie-btn-primary, gymie-chip, gymie-input
 - [x] "Resumo primeiro, detalhe depois" flow in meals
