@@ -975,6 +975,176 @@ async def get_weight_history(user=Depends(get_current_user)):
     return {"metrics": metrics}
 
 
+# ── Weekly Summary ───────────────────────────────────────────
+
+@app.post("/api/progress/weekly-summary")
+async def generate_weekly_summary(user=Depends(get_current_user)):
+    db = get_db()
+    uid = user["user_id"]
+    now = datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    week_key = now.strftime("%Y-W%W")
+
+    # Gather week data
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+    user_doc = await db.users.find_one({"_id": uid})
+    name = user_doc.get("name", "Soldado") if user_doc else "Soldado"
+    persona_style = profile.get("persona_style", "tactical") if profile else "tactical"
+
+    meals = await db.meals.find({"user_id": uid, "date": {"$gte": week_start}}, {"_id": 0}).to_list(200)
+    water_logs = await db.water_logs.find({"user_id": uid, "date": {"$gte": week_start}}, {"_id": 0}).to_list(200)
+    sessions = await db.workout_sessions.find({"user_id": uid, "date": {"$gte": week_start}, "status": "completed"}, {"_id": 0}).to_list(20)
+    checkins = await db.daily_checkins.find({"user_id": uid, "date": {"$gte": week_start}}, {"_id": 0}).to_list(7)
+    metrics = await db.body_metrics.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(14)
+    facts = await db.memory_facts.find({"user_id": uid}, {"_id": 0}).to_list(20)
+
+    # Build summary data
+    total_meals = len(meals)
+    avg_cal = round(sum(m.get("calories", 0) for m in meals) / max(total_meals, 1))
+    avg_protein = round(sum(m.get("protein", 0) for m in meals) / max(total_meals, 1))
+    total_water_days = {}
+    for w in water_logs:
+        d = w.get("date", "")
+        total_water_days[d] = total_water_days.get(d, 0) + w.get("amount_ml", 0)
+    avg_water = round(sum(total_water_days.values()) / max(len(total_water_days), 1))
+    workouts_count = len(sessions)
+    workout_types = [s.get("plan_type", "?") for s in sessions]
+
+    weight_start = metrics[-1]["weight"] if len(metrics) > 1 else None
+    weight_end = metrics[0]["weight"] if metrics else None
+    weight_change = round(weight_end - weight_start, 1) if weight_start and weight_end else None
+
+    avg_sleep = round(sum(c.get("sleep_quality", 0) for c in checkins) / max(len(checkins), 1), 1) if checkins else None
+    avg_energy = round(sum(c.get("energy_level", 0) for c in checkins) / max(len(checkins), 1), 1) if checkins else None
+
+    facts_text = "\n".join([f"- {f.get('fact', '')}" for f in facts[:10]]) if facts else "Nenhum fato registrado."
+
+    context_for_ai = f"""DADOS DA SEMANA ({week_start} a {now.strftime('%Y-%m-%d')}):
+Nome: {name}
+Objetivo: {profile.get('goal', 'N/A') if profile else 'N/A'}
+Peso: {weight_end}kg (variacao: {weight_change}kg) | Meta: {profile.get('goal_weight', 'N/A') if profile else 'N/A'}kg
+Refeicoes: {total_meals} registros | Media {avg_cal} kcal, {avg_protein}g proteina por refeicao
+Agua: media {avg_water}ml/dia | Meta: {profile.get('water_goal_ml', 2500) if profile else 2500}ml
+Treinos: {workouts_count} sessoes ({', '.join(workout_types) if workout_types else 'nenhum'})
+Sono medio: {avg_sleep}/5 | Energia media: {avg_energy}/5
+Check-ins: {len(checkins)} de 7 dias
+Fatos sobre o usuario:\n{facts_text}"""
+
+    try:
+        from ai_service import generate_ai_response
+        result = await generate_ai_response(
+            api_key=EMERGENT_LLM_KEY,
+            user_message=f"Gere um RESUMO SEMANAL detalhado para o usuario. Analise os dados, destaque vitorias, aponte areas de melhoria e de 3 acoes praticas para a proxima semana. Seja motivador mas honesto. Maximo 4 paragrafos.\n\nDados:\n{context_for_ai}",
+            context={"user_name": name, "profile": profile, "today": {}, "recent_messages": []},
+            persona_style=persona_style,
+            mode="companion",
+            thread_id=f"weekly-{week_key}",
+        )
+        summary_text = result.get("message_text", "Erro ao gerar resumo.")
+    except Exception as e:
+        summary_text = f"Nao foi possivel gerar o resumo automatico. Dados da semana: {workouts_count} treinos, {total_meals} refeicoes, media {avg_water}ml agua/dia."
+        print(f"Weekly summary AI error: {e}")
+
+    summary_doc = {
+        "user_id": uid,
+        "week": week_key,
+        "date_range": {"start": week_start, "end": now.strftime("%Y-%m-%d")},
+        "summary_text": summary_text,
+        "persona_style": persona_style,
+        "stats": {
+            "meals": total_meals, "avg_calories": avg_cal, "avg_protein": avg_protein,
+            "avg_water_ml": avg_water, "workouts": workouts_count, "workout_types": workout_types,
+            "weight_start": weight_start, "weight_end": weight_end, "weight_change": weight_change,
+            "avg_sleep": avg_sleep, "avg_energy": avg_energy, "checkin_days": len(checkins),
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.weekly_summaries.update_one(
+        {"user_id": uid, "week": week_key},
+        {"$set": summary_doc},
+        upsert=True,
+    )
+    return summary_doc
+
+
+@app.get("/api/progress/weekly-summary")
+async def get_weekly_summary(user=Depends(get_current_user)):
+    db = get_db()
+    summaries = await db.weekly_summaries.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("week", -1).to_list(4)
+    return {"summaries": summaries}
+
+
+# ── Exercise History ─────────────────────────────────────────
+
+@app.get("/api/progress/exercise-history")
+async def get_exercise_history(exercise_name: str = Query(...), user=Depends(get_current_user)):
+    db = get_db()
+    sessions = await db.workout_sessions.find(
+        {"user_id": user["user_id"], "status": "completed"}, {"_id": 0}
+    ).sort("date", 1).to_list(100)
+
+    history = []
+    for s in sessions:
+        for ex in s.get("exercises", []):
+            if ex.get("name", "").lower() == exercise_name.lower():
+                completed_sets = [st for st in ex.get("sets", []) if st.get("completed")]
+                if completed_sets:
+                    max_weight = max(st.get("weight_kg", 0) for st in completed_sets)
+                    total_reps = sum(st.get("reps", 0) for st in completed_sets)
+                    total_volume = sum(st.get("weight_kg", 0) * st.get("reps", 0) for st in completed_sets)
+                    history.append({
+                        "date": s.get("date"),
+                        "max_weight": max_weight,
+                        "total_reps": total_reps,
+                        "total_volume": round(total_volume),
+                        "sets_completed": len(completed_sets),
+                    })
+    return {"exercise_name": exercise_name, "history": history}
+
+
+# ── Memory Facts ─────────────────────────────────────────────
+
+@app.get("/api/memory/facts")
+async def get_memory_facts(user=Depends(get_current_user)):
+    db = get_db()
+    facts = await db.memory_facts.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"facts": facts}
+
+
+@app.post("/api/memory/facts")
+async def create_memory_fact(req: MemoryFactCreate, user=Depends(get_current_user)):
+    db = get_db()
+    fact = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "fact": req.fact,
+        "category": req.category or "general",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.memory_facts.insert_one(fact)
+    del fact["_id"]
+    return fact
+
+
+@app.delete("/api/memory/facts/{fact_id}")
+async def delete_memory_fact(fact_id: str, user=Depends(get_current_user)):
+    db = get_db()
+    result = await db.memory_facts.delete_one({"id": fact_id, "user_id": user["user_id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Fato nao encontrado")
+    return {"message": "Fato removido"}
+
+
+# ── Photo Upload ─────────────────────────────────────────────
+
+@app.post("/api/upload/photo")
+async def upload_photo(user=Depends(get_current_user)):
+    from fastapi import File, UploadFile
+    return {"message": "Upload de foto disponivel em breve. Use photo_url no campo de refeicao."}
+
+
 # ── Seed Data ────────────────────────────────────────────────
 
 @app.post("/api/seed")
