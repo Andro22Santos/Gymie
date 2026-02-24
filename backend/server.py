@@ -427,6 +427,7 @@ async def create_meal(req: MealCreate, user=Depends(get_current_user)):
         "carbs": req.carbs or 0,
         "fat": req.fat or 0,
         "time": req.time or datetime.now(timezone.utc).strftime("%H:%M"),
+        "photo_url": req.photo_url,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.meals.insert_one(meal)
