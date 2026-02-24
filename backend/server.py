@@ -660,6 +660,8 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
     water_logs = await db.water_logs.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(50)
     reminders = await db.reminders.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(50)
     checkin = await db.daily_checkins.find_one({"user_id": uid, "date": date}, {"_id": 0})
+    memory_facts = await db.memory_facts.find({"user_id": uid}, {"_id": 0}).to_list(20)
+    workout_sessions_today = await db.workout_sessions.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(5)
 
     recent_messages = await db.chat_messages.find(
         {"thread_id": thread_id}, {"_id": 0}
@@ -669,6 +671,7 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
     context = {
         "user_name": user_doc.get("name", "Soldado") if user_doc else "Soldado",
         "profile": profile,
+        "memory_facts": memory_facts,
         "today": {
             "date": date,
             "meals": meals,
@@ -678,6 +681,7 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
             "water_goal_ml": profile.get("water_goal_ml", 2500) if profile else 2500,
             "reminders": reminders,
             "checkin": checkin,
+            "workout_sessions": workout_sessions_today,
         },
         "recent_messages": recent_messages[-10:],
     }
