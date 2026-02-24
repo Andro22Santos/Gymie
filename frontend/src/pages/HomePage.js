@@ -5,7 +5,7 @@ import api from '../api';
 import { 
   Target, MessageSquare, UtensilsCrossed, Droplet, Dumbbell, 
   Check, X, Clock, ChevronRight, Moon, Battery, Smile, 
-  Settings, Flame, TrendingUp, AlertCircle, Plus
+  Settings, Flame, TrendingUp, AlertCircle, Plus, Zap
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -16,15 +16,18 @@ export default function HomePage() {
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkin, setCheckin] = useState({ sleep_quality: 3, energy_level: 3, mood: 'neutro' });
   const [actionableInsights, setActionableInsights] = useState([]);
+  const [streak, setStreak] = useState(null);
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const [dashRes, insightsRes] = await Promise.all([
+      const [dashRes, insightsRes, streakRes] = await Promise.all([
         api.get('/api/dashboard/today'),
         api.get('/api/agents/insights'),
+        api.get('/api/streak'),
       ]);
       setDashboard(dashRes.data);
       setActionableInsights(insightsRes.data.actionable || []);
+      setStreak(streakRes.data);
     } catch (err) { console.error(err); }
     setLoading(false);
   }, []);
