@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
     await db.body_metrics.create_index([("user_id", 1), ("date", 1)])
     await db.memory_facts.create_index("user_id")
     await db.weekly_summaries.create_index([("user_id", 1), ("week", -1)])
+    await db.agent_insights.create_index([("user_id", 1), ("created_at", -1)])
     yield
     app.state.mongo_client.close()
 
