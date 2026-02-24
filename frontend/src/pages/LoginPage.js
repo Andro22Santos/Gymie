@@ -1,16 +1,68 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Dumbbell, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
+import api from '../api';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, setUser, setToken } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [processingGoogle, setProcessingGoogle] = useState(false);
+
+  // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+  // Check for session_id from Google OAuth callback
+  useEffect(() => {
+    const hash = location.hash;
+    if (hash && hash.includes('session_id=')) {
+      const sessionId = new URLSearchParams(hash.substring(1)).get('session_id');
+      if (sessionId) {
+        processGoogleSession(sessionId);
+      }
+    }
+  }, [location]);
+
+  const processGoogleSession = async (sessionId) => {
+    setProcessingGoogle(true);
+    setError('');
+    try {
+      const res = await api.post('/api/auth/google/session', { session_id: sessionId });
+      // Store tokens
+      localStorage.setItem('access_token', res.data.access_token);
+      localStorage.setItem('refresh_token', res.data.refresh_token);
+      setToken(res.data.access_token);
+      setUser({
+        user_id: res.data.user_id,
+        name: res.data.name,
+        email: res.data.email,
+        picture: res.data.picture,
+      });
+      // Clear hash from URL
+      window.history.replaceState(null, '', window.location.pathname);
+      // Navigate based on onboarding status
+      if (res.data.onboarding_completed) {
+        navigate('/');
+      } else {
+        navigate('/onboarding');
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Erro ao processar login com Google');
+      window.history.replaceState(null, '', window.location.pathname);
+    } finally {
+      setProcessingGoogle(false);
+    }
+  };
+
+  const handleGoogleLogin = () => {
+    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+    const redirectUrl = window.location.origin + '/login';
+    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
