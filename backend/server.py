@@ -209,7 +209,8 @@ class MemoryFactCreate(BaseModel):
 # ── Auth Endpoints ───────────────────────────────────────────
 
 @app.post("/api/auth/register")
-async def register(req: RegisterRequest):
+@limiter.limit("5/minute")
+async def register(request: Request, req: RegisterRequest):
     db = get_db()
     existing = await db.users.find_one({"email": req.email.lower()})
     if existing:
