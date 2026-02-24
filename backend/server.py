@@ -1845,3 +1845,361 @@ async def test_push_notification(user=Depends(get_current_user)):
     )
     return {"success": result.success, "message_id": result.message_id}
 
+
+# ── Achievements System ────────────────────────────────────────
+
+# Achievement definitions
+ACHIEVEMENTS = [
+    # Streak achievements
+    {"id": "streak_3", "name": "Primeira Faísca", "desc": "3 dias de check-in seguidos", "icon": "🔥", "category": "streak", "condition": {"streak": 3}},
+    {"id": "streak_7", "name": "Primeira Semana", "desc": "7 dias de check-in seguidos", "icon": "🔥", "category": "streak", "condition": {"streak": 7}},
+    {"id": "streak_14", "name": "Duas Semanas de Foco", "desc": "14 dias de check-in seguidos", "icon": "⚡", "category": "streak", "condition": {"streak": 14}},
+    {"id": "streak_30", "name": "Mês de Ferro", "desc": "30 dias de check-in seguidos", "icon": "💪", "category": "streak", "condition": {"streak": 30}},
+    {"id": "streak_60", "name": "Imparável", "desc": "60 dias de check-in seguidos", "icon": "🏆", "category": "streak", "condition": {"streak": 60}},
+    {"id": "streak_100", "name": "Centurião", "desc": "100 dias de check-in seguidos", "icon": "👑", "category": "streak", "condition": {"streak": 100}},
+    
+    # Meals achievements
+    {"id": "meals_10", "name": "Primeiros Registros", "desc": "10 refeições registradas", "icon": "🍽️", "category": "meals", "condition": {"meals": 10}},
+    {"id": "meals_50", "name": "Diário Alimentar", "desc": "50 refeições registradas", "icon": "📝", "category": "meals", "condition": {"meals": 50}},
+    {"id": "meals_100", "name": "Nutrição em Dia", "desc": "100 refeições registradas", "icon": "🎯", "category": "meals", "condition": {"meals": 100}},
+    {"id": "meals_500", "name": "Mestre da Alimentação", "desc": "500 refeições registradas", "icon": "🏅", "category": "meals", "condition": {"meals": 500}},
+    
+    # Workout achievements
+    {"id": "workouts_5", "name": "Iniciante", "desc": "5 treinos concluídos", "icon": "🏋️", "category": "workouts", "condition": {"workouts": 5}},
+    {"id": "workouts_20", "name": "Frequentador", "desc": "20 treinos concluídos", "icon": "💪", "category": "workouts", "condition": {"workouts": 20}},
+    {"id": "workouts_50", "name": "Dedicado", "desc": "50 treinos concluídos", "icon": "⭐", "category": "workouts", "condition": {"workouts": 50}},
+    {"id": "workouts_100", "name": "Atleta", "desc": "100 treinos concluídos", "icon": "🏆", "category": "workouts", "condition": {"workouts": 100}},
+    
+    # Water achievements
+    {"id": "water_7", "name": "Hidratado", "desc": "Meta de água 7 dias seguidos", "icon": "💧", "category": "water", "condition": {"water_goal_days": 7}},
+    {"id": "water_30", "name": "Fonte de Energia", "desc": "Meta de água 30 dias seguidos", "icon": "🌊", "category": "water", "condition": {"water_goal_days": 30}},
+    
+    # Special achievements
+    {"id": "first_chat", "name": "Primeiro Contato", "desc": "Primeira conversa com Gymie", "icon": "💬", "category": "special", "condition": {"chats": 1}},
+    {"id": "weekly_summary", "name": "Reflexivo", "desc": "Gerou primeiro resumo semanal", "icon": "📊", "category": "special", "condition": {"weekly_summaries": 1}},
+    {"id": "weight_logged", "name": "Na Balança", "desc": "Registrou peso pela primeira vez", "icon": "⚖️", "category": "special", "condition": {"weight_logs": 1}},
+]
+
+
+@app.get("/api/achievements")
+async def get_achievements(user=Depends(get_current_user)):
+    """
+    Get all achievements with unlock status for the user.
+    Calculates progress and unlocks achievements dynamically.
+    """
+    db = get_db()
+    uid = user["user_id"]
+    
+    # Get user stats
+    checkins = await db.daily_checkins.find({"user_id": uid}, {"_id": 0, "date": 1}).to_list(500)
+    meals_count = await db.meals.count_documents({"user_id": uid})
+    workouts_count = await db.workout_sessions.count_documents({"user_id": uid, "status": "completed"})
+    water_logs = await db.water_logs.find({"user_id": uid}, {"_id": 0, "date": 1, "amount_ml": 1}).to_list(1000)
+    chats_count = await db.chat_messages.count_documents({"user_id": uid, "role": "user"})
+    summaries_count = await db.weekly_summaries.count_documents({"user_id": uid})
+    weight_count = await db.body_metrics.count_documents({"user_id": uid})
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0, "water_goal_ml": 1})
+    water_goal = profile.get("water_goal_ml", 2500) if profile else 2500
+    
+    # Calculate streak
+    checkin_dates = set(c["date"] for c in checkins)
+    current_streak = 0
+    check_date = datetime.now(timezone.utc).date()
+    today = today_str()
+    if today not in checkin_dates:
+        check_date = check_date - timedelta(days=1)
+    while check_date.strftime("%Y-%m-%d") in checkin_dates:
+        current_streak += 1
+        check_date = check_date - timedelta(days=1)
+    
+    # Calculate longest streak
+    longest_streak = 0
+    temp_streak = 0
+    sorted_dates = sorted(checkin_dates, reverse=True)
+    for i, date_str in enumerate(sorted_dates):
+        if i == 0:
+            temp_streak = 1
+        else:
+            prev_date = datetime.strptime(sorted_dates[i-1], "%Y-%m-%d").date()
+            curr_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            if (prev_date - curr_date).days == 1:
+                temp_streak += 1
+            else:
+                longest_streak = max(longest_streak, temp_streak)
+                temp_streak = 1
+    longest_streak = max(longest_streak, temp_streak, current_streak)
+    
+    # Calculate water goal days streak
+    water_by_date = {}
+    for w in water_logs:
+        d = w.get("date", "")
+        water_by_date[d] = water_by_date.get(d, 0) + w.get("amount_ml", 0)
+    water_goal_streak = 0
+    check_date = datetime.now(timezone.utc).date()
+    while True:
+        date_str = check_date.strftime("%Y-%m-%d")
+        if water_by_date.get(date_str, 0) >= water_goal:
+            water_goal_streak += 1
+            check_date = check_date - timedelta(days=1)
+        else:
+            break
+    
+    # User stats summary
+    stats = {
+        "streak": longest_streak,
+        "meals": meals_count,
+        "workouts": workouts_count,
+        "water_goal_days": water_goal_streak,
+        "chats": chats_count,
+        "weekly_summaries": summaries_count,
+        "weight_logs": weight_count,
+    }
+    
+    # Get already unlocked achievements
+    unlocked = await db.user_achievements.find({"user_id": uid}, {"_id": 0}).to_list(100)
+    unlocked_ids = {a["achievement_id"]: a for a in unlocked}
+    
+    # Check and unlock achievements
+    achievements_result = []
+    newly_unlocked = []
+    
+    for ach in ACHIEVEMENTS:
+        condition = ach["condition"]
+        is_unlocked = ach["id"] in unlocked_ids
+        progress = 0
+        target = 0
+        
+        # Calculate progress
+        if "streak" in condition:
+            target = condition["streak"]
+            progress = min(longest_streak, target)
+            should_unlock = longest_streak >= target
+        elif "meals" in condition:
+            target = condition["meals"]
+            progress = min(meals_count, target)
+            should_unlock = meals_count >= target
+        elif "workouts" in condition:
+            target = condition["workouts"]
+            progress = min(workouts_count, target)
+            should_unlock = workouts_count >= target
+        elif "water_goal_days" in condition:
+            target = condition["water_goal_days"]
+            progress = min(water_goal_streak, target)
+            should_unlock = water_goal_streak >= target
+        elif "chats" in condition:
+            target = condition["chats"]
+            progress = min(chats_count, target)
+            should_unlock = chats_count >= target
+        elif "weekly_summaries" in condition:
+            target = condition["weekly_summaries"]
+            progress = min(summaries_count, target)
+            should_unlock = summaries_count >= target
+        elif "weight_logs" in condition:
+            target = condition["weight_logs"]
+            progress = min(weight_count, target)
+            should_unlock = weight_count >= target
+        else:
+            should_unlock = False
+        
+        # Unlock if not already unlocked
+        if should_unlock and not is_unlocked:
+            unlock_data = {
+                "id": str(uuid.uuid4()),
+                "user_id": uid,
+                "achievement_id": ach["id"],
+                "unlocked_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.user_achievements.insert_one(unlock_data)
+            is_unlocked = True
+            newly_unlocked.append(ach)
+        
+        achievements_result.append({
+            "id": ach["id"],
+            "name": ach["name"],
+            "description": ach["desc"],
+            "icon": ach["icon"],
+            "category": ach["category"],
+            "unlocked": is_unlocked,
+            "progress": progress,
+            "target": target,
+            "unlocked_at": unlocked_ids.get(ach["id"], {}).get("unlocked_at") if is_unlocked else None,
+        })
+    
+    # Sort: unlocked first, then by category
+    achievements_result.sort(key=lambda x: (not x["unlocked"], x["category"], x["target"]))
+    
+    unlocked_count = len([a for a in achievements_result if a["unlocked"]])
+    
+    return {
+        "achievements": achievements_result,
+        "stats": {
+            "total": len(ACHIEVEMENTS),
+            "unlocked": unlocked_count,
+            "percentage": round(unlocked_count / len(ACHIEVEMENTS) * 100),
+        },
+        "newly_unlocked": [{"id": a["id"], "name": a["name"], "icon": a["icon"]} for a in newly_unlocked],
+        "user_stats": stats,
+    }
+
+
+# ── Data Export ────────────────────────────────────────────────
+
+from fastapi.responses import StreamingResponse
+import csv
+import io
+import json as json_lib
+
+@app.get("/api/export/meals")
+async def export_meals(
+    format: str = Query("csv", enum=["csv", "json"]),
+    days: int = Query(30, ge=1, le=365),
+    user=Depends(get_current_user)
+):
+    """Export meal history as CSV or JSON."""
+    db = get_db()
+    uid = user["user_id"]
+    
+    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    meals = await db.meals.find(
+        {"user_id": uid, "date": {"$gte": start_date}},
+        {"_id": 0, "user_id": 0}
+    ).sort("date", -1).to_list(1000)
+    
+    if format == "json":
+        return {"meals": meals, "count": len(meals), "days": days}
+    
+    # CSV format
+    output = io.StringIO()
+    if meals:
+        fieldnames = ["date", "time", "meal_type", "description", "calories", "protein", "carbs", "fat"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        for m in meals:
+            writer.writerow(m)
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=gymie_meals_{days}d.csv"}
+    )
+
+
+@app.get("/api/export/workouts")
+async def export_workouts(
+    format: str = Query("csv", enum=["csv", "json"]),
+    days: int = Query(30, ge=1, le=365),
+    user=Depends(get_current_user)
+):
+    """Export workout history as CSV or JSON."""
+    db = get_db()
+    uid = user["user_id"]
+    
+    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    sessions = await db.workout_sessions.find(
+        {"user_id": uid, "date": {"$gte": start_date}, "status": "completed"},
+        {"_id": 0, "user_id": 0}
+    ).sort("date", -1).to_list(500)
+    
+    if format == "json":
+        return {"workouts": sessions, "count": len(sessions), "days": days}
+    
+    # CSV format - flatten exercises
+    output = io.StringIO()
+    fieldnames = ["date", "plan_name", "plan_type", "exercise", "sets", "total_reps", "max_weight"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    
+    for s in sessions:
+        for ex in s.get("exercises", []):
+            completed_sets = [st for st in ex.get("sets", []) if st.get("completed")]
+            total_reps = sum(st.get("reps", 0) for st in completed_sets)
+            max_weight = max((st.get("weight_kg", 0) for st in completed_sets), default=0)
+            writer.writerow({
+                "date": s.get("date"),
+                "plan_name": s.get("plan_name"),
+                "plan_type": s.get("plan_type"),
+                "exercise": ex.get("name"),
+                "sets": len(completed_sets),
+                "total_reps": total_reps,
+                "max_weight": max_weight,
+            })
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=gymie_workouts_{days}d.csv"}
+    )
+
+
+@app.get("/api/export/progress")
+async def export_progress(
+    format: str = Query("csv", enum=["csv", "json"]),
+    days: int = Query(30, ge=1, le=365),
+    user=Depends(get_current_user)
+):
+    """Export progress data (weight, water, checkins) as CSV or JSON."""
+    db = get_db()
+    uid = user["user_id"]
+    
+    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    # Get all data
+    metrics = await db.body_metrics.find(
+        {"user_id": uid, "date": {"$gte": start_date}},
+        {"_id": 0, "user_id": 0}
+    ).sort("date", -1).to_list(365)
+    
+    water_logs = await db.water_logs.find(
+        {"user_id": uid, "date": {"$gte": start_date}},
+        {"_id": 0, "user_id": 0}
+    ).to_list(2000)
+    
+    checkins = await db.daily_checkins.find(
+        {"user_id": uid, "date": {"$gte": start_date}},
+        {"_id": 0, "user_id": 0}
+    ).sort("date", -1).to_list(365)
+    
+    # Aggregate water by date
+    water_by_date = {}
+    for w in water_logs:
+        d = w.get("date", "")
+        water_by_date[d] = water_by_date.get(d, 0) + w.get("amount_ml", 0)
+    
+    if format == "json":
+        return {
+            "weight_history": metrics,
+            "water_by_date": [{"date": k, "total_ml": v} for k, v in sorted(water_by_date.items(), reverse=True)],
+            "checkins": checkins,
+            "days": days,
+        }
+    
+    # CSV format - daily summary
+    output = io.StringIO()
+    fieldnames = ["date", "weight_kg", "water_ml", "sleep_quality", "energy_level", "mood"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    
+    # Build date index
+    weight_by_date = {m["date"]: m.get("weight") for m in metrics}
+    checkin_by_date = {c["date"]: c for c in checkins}
+    
+    all_dates = set(weight_by_date.keys()) | set(water_by_date.keys()) | set(checkin_by_date.keys())
+    for d in sorted(all_dates, reverse=True):
+        checkin = checkin_by_date.get(d, {})
+        writer.writerow({
+            "date": d,
+            "weight_kg": weight_by_date.get(d, ""),
+            "water_ml": water_by_date.get(d, ""),
+            "sleep_quality": checkin.get("sleep_quality", ""),
+            "energy_level": checkin.get("energy_level", ""),
+            "mood": checkin.get("mood", ""),
+        })
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=gymie_progress_{days}d.csv"}
+    )
