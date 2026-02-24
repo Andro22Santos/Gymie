@@ -453,26 +453,33 @@ class ShapePhase3Tester:
         )
 
 def main():
-    print("🚀 Starting Shape Inexplicavel Phase 2 API Testing")
+    print("🚀 Starting Shape Inexplicavel Phase 3 API Testing")
     print("=" * 60)
     
-    tester = WorkoutAPITester()
+    tester = ShapePhase3Tester()
     
     # Test authentication first
     if not tester.test_auth():
         print("❌ Authentication failed, stopping tests")
         return 1
     
-    # Run all tests
+    # Run all tests - Phase 1+2 features
     tester.test_workout_plans()
     tester.test_workout_sessions() 
     tester.test_body_metrics()
     tester.test_progress()
+    
+    # Phase 3 New Features
+    tester.test_weekly_summary()
+    tester.test_exercise_history()
+    tester.test_memory_facts()
+    tester.test_meals_with_photos()
+    
     tester.test_health_check()
     
     # Print summary
     print("\n" + "=" * 60)
-    print(f"📊 BACKEND TESTING COMPLETE")
+    print(f"📊 PHASE 3 BACKEND TESTING COMPLETE")
     print(f"Tests passed: {tester.tests_passed}/{tester.tests_run}")
     print(f"Success rate: {(tester.tests_passed/tester.tests_run)*100:.1f}%")
     
