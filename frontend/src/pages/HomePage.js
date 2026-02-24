@@ -79,7 +79,7 @@ export default function HomePage() {
 
   return (
     <div className="px-4 pt-5 pb-24 space-y-5 max-w-md mx-auto">
-      {/* Header */}
+      {/* Header with Streak */}
       <div className="flex items-start justify-between animate-slide-up">
         <div>
           <p className="text-xs text-txt-muted font-medium">
@@ -89,14 +89,62 @@ export default function HomePage() {
             {greeting}, {name}
           </h1>
         </div>
-        <button 
-          data-testid="settings-btn" 
-          onClick={() => navigate('/settings')} 
-          className="p-2 rounded-full hover:bg-surface-hl transition-colors"
-        >
-          <Settings size={20} className="text-txt-muted" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Streak Badge */}
+          {streak && streak.current_streak > 0 && (
+            <div 
+              data-testid="streak-badge"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-500/15 border border-orange-500/30 animate-pulse-glow"
+            >
+              <Zap size={14} className="text-orange-400" />
+              <span className="text-sm font-bold text-orange-400 font-data">{streak.current_streak}</span>
+              <span className="text-[10px] text-orange-400/80">dias</span>
+            </div>
+          )}
+          <button 
+            data-testid="settings-btn" 
+            onClick={() => navigate('/settings')} 
+            className="p-2 rounded-full hover:bg-surface-hl transition-colors"
+          >
+            <Settings size={20} className="text-txt-muted" />
+          </button>
+        </div>
       </div>
+
+      {/* Streak Card (when streak is significant) */}
+      {streak && streak.current_streak >= 3 && (
+        <div 
+          data-testid="streak-card"
+          className="gymie-card p-4 animate-slide-up relative overflow-hidden"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/5" />
+          <div className="relative flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-orange-500/20 flex items-center justify-center">
+              <Zap size={24} className="text-orange-400" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold text-orange-400 font-data">{streak.current_streak}</span>
+                <span className="text-sm text-txt-secondary">dias de foco</span>
+              </div>
+              <p className="text-xs text-txt-muted mt-0.5">
+                {streak.current_streak >= streak.longest_streak 
+                  ? '🏆 Seu melhor momento!' 
+                  : `Recorde: ${streak.longest_streak} dias`
+                }
+              </p>
+            </div>
+            {!d?.checkin && (
+              <button
+                onClick={() => setCheckinOpen(true)}
+                className="gymie-btn-primary py-2 px-3 text-xs"
+              >
+                Check-in
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Mission Card */}
       {nextMission && (
