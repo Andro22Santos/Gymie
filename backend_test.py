@@ -264,6 +264,183 @@ class ShapePhase3Tester:
             200
         )
 
+    def test_weekly_summary(self):
+        """Test Phase 3: Weekly Summary AI generation"""
+        print("\n🤖 Testing Weekly Summary (Phase 3)...")
+        
+        # Generate weekly summary with AI
+        print("⏳ Generating AI weekly summary (may take a few seconds)...")
+        success, summary_response = self.run_test(
+            "POST /api/progress/weekly-summary generates AI weekly summary with stats",
+            "POST",
+            "api/progress/weekly-summary",
+            200
+        )
+        
+        if success:
+            required_fields = ['summary_text', 'stats', 'week', 'date_range']
+            missing_fields = [f for f in required_fields if f not in summary_response]
+            if not missing_fields:
+                print("✅ Weekly summary has all required fields")
+                if summary_response.get('summary_text'):
+                    print("✅ AI generated summary text")
+                else:
+                    print("❌ Summary text is empty")
+            else:
+                print(f"❌ Missing fields in weekly summary: {missing_fields}")
+        
+        # Get cached weekly summaries
+        success, cached_response = self.run_test(
+            "GET /api/progress/weekly-summary returns cached summaries",
+            "GET",
+            "api/progress/weekly-summary",
+            200
+        )
+        
+        if success and cached_response.get('summaries'):
+            print(f"✅ Found {len(cached_response['summaries'])} cached weekly summaries")
+        
+    def test_exercise_history(self):
+        """Test Phase 3: Exercise History tracking"""
+        print("\n📊 Testing Exercise History (Phase 3)...")
+        
+        # Test exercise history for common exercises
+        test_exercises = ["Supino reto", "Puxada frontal", "Agachamento livre"]
+        
+        for exercise in test_exercises:
+            success, history_response = self.run_test(
+                f"GET /api/progress/exercise-history?exercise_name={exercise} returns history entries",
+                "GET",
+                f"api/progress/exercise-history?exercise_name={exercise.replace(' ', '+')}",
+                200
+            )
+            
+            if success:
+                history = history_response.get('history', [])
+                if len(history) > 0:
+                    print(f"✅ Found {len(history)} history entries for {exercise}")
+                    # Check if history entries have required fields
+                    first_entry = history[0]
+                    required_fields = ['date', 'max_weight', 'total_reps', 'total_volume']
+                    if all(field in first_entry for field in required_fields):
+                        print("✅ History entries have required fields")
+                    else:
+                        print("❌ History entries missing required fields")
+                else:
+                    print(f"⚠️  No history found for {exercise} (expected if no completed sessions)")
+
+    def test_memory_facts(self):
+        """Test Phase 3: Memory Facts CRUD operations"""
+        print("\n🧠 Testing Memory Facts (Phase 3)...")
+        
+        # Get memory facts (should have 5 seed facts)
+        success, facts_response = self.run_test(
+            "GET /api/memory/facts returns 5 seed facts with categories",
+            "GET",
+            "api/memory/facts",
+            200
+        )
+        
+        if success:
+            facts = facts_response.get('facts', [])
+            if len(facts) >= 5:
+                print(f"✅ Found {len(facts)} memory facts (expected 5+ seed facts)")
+                # Check if facts have required fields
+                for fact in facts[:3]:  # Check first 3 facts
+                    if 'fact' in fact and 'category' in fact and 'id' in fact:
+                        print(f"✅ Fact has required fields: {fact.get('category', 'unknown')}")
+                    else:
+                        print("❌ Fact missing required fields")
+                        break
+            else:
+                print(f"⚠️  Found only {len(facts)} facts, expected 5+ seed facts")
+        
+        # Create a new memory fact
+        new_fact_data = {
+            "fact": "Test automation fact - prefers evening workouts",
+            "category": "preferences"
+        }
+        
+        success, create_response = self.run_test(
+            "POST /api/memory/facts creates a new fact",
+            "POST",
+            "api/memory/facts",
+            200,
+            data=new_fact_data
+        )
+        
+        fact_id = None
+        if success and 'id' in create_response:
+            fact_id = create_response['id']
+            print(f"✅ Created fact with ID: {fact_id}")
+        
+        # Delete the test fact
+        if fact_id:
+            success, _ = self.run_test(
+                "DELETE /api/memory/facts/{id} removes a fact",
+                "DELETE",
+                f"api/memory/facts/{fact_id}",
+                200
+            )
+            if success:
+                print("✅ Successfully deleted test fact")
+
+    def test_meals_with_photos(self):
+        """Test Phase 3: Photo upload for meals"""
+        print("\n📸 Testing Meals with Photos (Phase 3)...")
+        
+        # Create meal with photo_url field
+        meal_data = {
+            "description": "Test meal with photo",
+            "meal_type": "lunch",
+            "calories": 500,
+            "protein": 30,
+            "carbs": 40,
+            "fat": 15,
+            "photo_url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAAAAAAAD"  # Sample base64
+        }
+        
+        success, meal_response = self.run_test(
+            "POST /api/meals with photo_url field stores the photo",
+            "POST",
+            "api/meals",
+            200,
+            data=meal_data
+        )
+        
+        meal_id = None
+        if success and 'id' in meal_response:
+            meal_id = meal_response['id']
+            if meal_response.get('photo_url'):
+                print("✅ Meal created with photo_url field")
+            else:
+                print("❌ Meal created but photo_url field missing")
+        
+        # Get meals and verify photo_url field is returned
+        success, meals_response = self.run_test(
+            "GET /api/meals returns meals with photo_url field",
+            "GET",
+            "api/meals",
+            200
+        )
+        
+        if success:
+            meals = meals_response.get('meals', [])
+            photo_meals = [m for m in meals if m.get('photo_url')]
+            if photo_meals:
+                print(f"✅ Found {len(photo_meals)} meals with photos")
+            else:
+                print("⚠️  No meals with photos found")
+        
+        # Clean up test meal
+        if meal_id:
+            self.run_test(
+                "DELETE test meal",
+                "DELETE",
+                f"api/meals/{meal_id}",
+                200
+            )
+
     def test_health_check(self):
         """Test API health"""
         print("\n🔧 Testing API Health...")
