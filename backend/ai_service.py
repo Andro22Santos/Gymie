@@ -91,6 +91,13 @@ def build_context_string(context: dict) -> str:
             routine_str = ", ".join([f"{k}: {v}" for k, v in r.items()])
             parts.append(f"Rotina: {routine_str}")
 
+    # Memory facts
+    memory_facts = context.get("memory_facts", [])
+    if memory_facts:
+        parts.append("\n--- FATOS SOBRE O USUARIO ---")
+        for f in memory_facts[:10]:
+            parts.append(f"- [{f.get('category', 'geral')}] {f.get('fact', '')}")
+
     today = context.get("today", {})
     if today:
         parts.append(f"\n--- ESTADO DO DIA ({today.get('date', 'hoje')}) ---")
@@ -112,6 +119,12 @@ def build_context_string(context: dict) -> str:
         checkin = today.get("checkin")
         if checkin:
             parts.append(f"Check-in: sono={checkin.get('sleep_quality', '?')}/5, energia={checkin.get('energy_level', '?')}/5, humor={checkin.get('mood', '?')}")
+
+        # Workout sessions today
+        workout_sessions = today.get("workout_sessions", [])
+        if workout_sessions:
+            for ws in workout_sessions:
+                parts.append(f"Treino: {ws.get('plan_name', '?')} - {ws.get('status', '?')}")
 
     return "\n".join(parts)
 
