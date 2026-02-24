@@ -731,6 +731,76 @@ async def create_checkin(req: CheckinCreate, user=Depends(get_current_user)):
     return checkin_data
 
 
+@app.get("/api/streak")
+async def get_streak(user=Depends(get_current_user)):
+    """
+    Calculate the current streak (consecutive days with check-ins).
+    Returns current streak, longest streak, and total check-ins.
+    """
+    db = get_db()
+    uid = user["user_id"]
+    
+    # Get all check-ins sorted by date descending
+    checkins = await db.daily_checkins.find(
+        {"user_id": uid}, {"_id": 0, "date": 1}
+    ).sort("date", -1).to_list(365)
+    
+    if not checkins:
+        return {
+            "current_streak": 0,
+            "longest_streak": 0,
+            "total_checkins": 0,
+            "streak_active": False,
+            "last_checkin": None,
+        }
+    
+    # Convert to set of dates for O(1) lookup
+    checkin_dates = set(c["date"] for c in checkins)
+    today = today_str()
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Check if streak is active (checked in today or yesterday)
+    streak_active = today in checkin_dates or yesterday in checkin_dates
+    
+    # Calculate current streak
+    current_streak = 0
+    check_date = datetime.now(timezone.utc).date()
+    
+    # If no check-in today, start from yesterday
+    if today not in checkin_dates:
+        check_date = check_date - timedelta(days=1)
+    
+    while check_date.strftime("%Y-%m-%d") in checkin_dates:
+        current_streak += 1
+        check_date = check_date - timedelta(days=1)
+    
+    # Calculate longest streak
+    longest_streak = 0
+    temp_streak = 0
+    sorted_dates = sorted(checkin_dates, reverse=True)
+    
+    for i, date_str in enumerate(sorted_dates):
+        if i == 0:
+            temp_streak = 1
+        else:
+            prev_date = datetime.strptime(sorted_dates[i-1], "%Y-%m-%d").date()
+            curr_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            if (prev_date - curr_date).days == 1:
+                temp_streak += 1
+            else:
+                longest_streak = max(longest_streak, temp_streak)
+                temp_streak = 1
+    longest_streak = max(longest_streak, temp_streak)
+    
+    return {
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "total_checkins": len(checkins),
+        "streak_active": streak_active,
+        "last_checkin": checkins[0]["date"] if checkins else None,
+    }
+
+
 # ── Chat ─────────────────────────────────────────────────────
 
 @app.get("/api/chat/threads")
