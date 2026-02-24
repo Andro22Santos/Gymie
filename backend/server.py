@@ -1609,4 +1609,53 @@ async def seed_data():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "operational", "app": "Shape Inexplicavel"}
+    return {"status": "operational", "app": "Gymie"}
+
+
+# ── Push Notifications ────────────────────────────────────────
+
+class PushTokenRequest(BaseModel):
+    token: str
+    platform: str = "web"
+    device_id: Optional[str] = None
+
+@app.post("/api/push/register")
+async def register_push_token(req: PushTokenRequest, user=Depends(get_current_user)):
+    """Register a push notification token for the current user."""
+    result = await push_service.register_token(
+        user["user_id"],
+        PushToken(token=req.token, platform=req.platform, device_id=req.device_id)
+    )
+    return result
+
+@app.delete("/api/push/unregister")
+async def unregister_push_token(token: str = Query(...), user=Depends(get_current_user)):
+    """Remove a push notification token."""
+    result = await push_service.unregister_token(user["user_id"], token)
+    return result
+
+@app.get("/api/push/tokens")
+async def get_push_tokens(user=Depends(get_current_user)):
+    """Get all registered push tokens for the current user."""
+    tokens = await push_service.get_user_tokens(user["user_id"])
+    return {"tokens": tokens}
+
+@app.get("/api/push/log")
+async def get_notification_log(user=Depends(get_current_user)):
+    """Get notification history for debugging (dev mode)."""
+    logs = await push_service.get_notification_log(user["user_id"], limit=20)
+    return {"notifications": logs}
+
+@app.post("/api/push/test")
+async def test_push_notification(user=Depends(get_current_user)):
+    """Send a test notification to the current user."""
+    result = await push_service.send_notification(
+        user["user_id"],
+        NotificationPayload(
+            title="🔔 Teste do Gymie",
+            body="Se você está vendo isso, as notificações estão funcionando!",
+            notification_type="test",
+        )
+    )
+    return {"success": result.success, "message_id": result.message_id}
+
