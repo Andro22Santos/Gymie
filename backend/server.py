@@ -17,6 +17,11 @@ from slowapi.errors import RateLimitExceeded
 
 from ai_service import generate_ai_response, generate_reminder_message
 from agents import orchestrate_response, analyze_meal_photo, get_agents_info, classify_intent
+from push_notifications import (
+    push_service, PushToken, NotificationPayload,
+    send_reminder_notification, send_checkin_notification,
+    send_water_reminder, send_workout_reminder
+)
 
 load_dotenv()
 
