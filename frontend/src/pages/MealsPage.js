@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
-import { UtensilsCrossed, Plus, X, Trash2, Clock, Camera, Image } from 'lucide-react';
+import { UtensilsCrossed, Plus, X, Trash2, Clock, Camera, Loader2, Sparkles, Check, AlertCircle } from 'lucide-react';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: 'Cafe da manha' },
@@ -15,7 +15,18 @@ export default function MealsPage() {
   const [meals, setMeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '', photo_url: '' });
+  const [form, setForm] = useState({ 
+    description: '', 
+    meal_type: 'snack', 
+    calories: '', 
+    protein: '', 
+    carbs: '', 
+    fat: '', 
+    time: '', 
+    photo_url: '' 
+  });
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
 
   const fetchMeals = useCallback(async () => {
     try {
@@ -26,6 +37,52 @@ export default function MealsPage() {
   }, []);
 
   useEffect(() => { fetchMeals(); }, [fetchMeals]);
+
+  const handleAnalyze = async () => {
+    if (!form.description.trim()) return;
+    setAnalyzing(true);
+    setAnalysisResult(null);
+    
+    try {
+      const res = await api.post('/api/meals/analyze', {
+        description: form.description,
+        photo_base64: form.photo_url || null,
+      });
+      
+      if (res.data.success !== false) {
+        const macros = res.data.estimated_macros || {};
+        setForm({
+          ...form,
+          calories: macros.calories?.toString() || '0',
+          protein: macros.protein?.toString() || '0',
+          carbs: macros.carbs?.toString() || '0',
+          fat: macros.fat?.toString() || '0',
+          description: macros.description || form.description,
+        });
+        setAnalysisResult({
+          success: true,
+          text: res.data.analysis_text,
+          confidence: res.data.confidence,
+          suggestions: res.data.suggestions || [],
+        });
+      } else {
+        setAnalysisResult({
+          success: false,
+          text: res.data.analysis_text || 'Nao foi possivel analisar.',
+          suggestions: res.data.suggestions || [],
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setAnalysisResult({
+        success: false,
+        text: 'Erro ao analisar refeicao. Tente novamente.',
+        suggestions: [],
+      });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,6 +98,7 @@ export default function MealsPage() {
       });
       setModalOpen(false);
       setForm({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '', photo_url: '' });
+      setAnalysisResult(null);
       fetchMeals();
     } catch (err) { console.error(err); }
   };
@@ -50,6 +108,12 @@ export default function MealsPage() {
       await api.delete(`/api/meals/${id}`);
       fetchMeals();
     } catch (err) { console.error(err); }
+  };
+
+  const openModal = () => {
+    setForm({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '', photo_url: '' });
+    setAnalysisResult(null);
+    setModalOpen(true);
   };
 
   const totalCal = meals.reduce((s, m) => s + (m.calories || 0), 0);
@@ -72,7 +136,7 @@ export default function MealsPage() {
         </div>
         <button
           data-testid="add-meal-btn"
-          onClick={() => setModalOpen(true)}
+          onClick={openModal}
           className="bg-tactical text-black p-2.5 hover:bg-tactical-dim active:scale-95 transition-all"
         >
           <Plus size={18} />
@@ -100,7 +164,7 @@ export default function MealsPage() {
         <div className="text-center py-12">
           <UtensilsCrossed size={32} className="text-txt-muted mx-auto mb-3" strokeWidth={1} />
           <p className="text-sm text-txt-muted">Nenhuma refeicao registrada hoje.</p>
-          <button onClick={() => setModalOpen(true)} className="text-tactical text-sm mt-2 hover:text-tactical-dim">
+          <button onClick={openModal} className="text-tactical text-sm mt-2 hover:text-tactical-dim">
             Adicionar refeicao
           </button>
         </div>
@@ -139,13 +203,15 @@ export default function MealsPage() {
 
       {/* Add Meal Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end justify-center" onClick={() => setModalOpen(false)}>
-          <div className="w-full max-w-md bg-surface border-t border-border-default p-6 animate-slide-up" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-end justify-center" onClick={() => setModalOpen(false)}>
+          <div className="w-full max-w-md bg-surface border-t border-border-default p-6 animate-slide-up max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-heading text-lg uppercase tracking-tight">Nova Refeicao</h3>
               <button onClick={() => setModalOpen(false)} className="text-txt-muted hover:text-txt-primary"><X size={20} /></button>
             </div>
+            
             <form onSubmit={handleSubmit} className="space-y-3">
+              {/* Description */}
               <div>
                 <label className="font-heading text-[10px] uppercase tracking-wider text-txt-secondary mb-1 block">Descricao</label>
                 <textarea
@@ -154,9 +220,63 @@ export default function MealsPage() {
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   className="w-full bg-bg border border-border-default text-txt-primary placeholder:text-txt-muted focus:border-tactical px-3 py-2 outline-none text-sm resize-none"
                   rows={2}
-                  placeholder="Ex: Frango grelhado + arroz + salada"
+                  placeholder="Ex: Frango grelhado + arroz integral + salada"
                 />
               </div>
+
+              {/* AI Analysis Button */}
+              <button
+                type="button"
+                data-testid="analyze-meal-btn"
+                onClick={handleAnalyze}
+                disabled={!form.description.trim() || analyzing}
+                className="w-full flex items-center justify-center gap-2 py-2.5 border border-orange-400/50 bg-orange-400/10 text-orange-400 text-xs font-bold uppercase tracking-wider hover:bg-orange-400/20 disabled:opacity-40 transition-all"
+              >
+                {analyzing ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Analisando com IA...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    Analisar com IA
+                  </>
+                )}
+              </button>
+
+              {/* Analysis Result */}
+              {analysisResult && (
+                <div 
+                  data-testid="analysis-result"
+                  className={`p-3 border ${analysisResult.success ? 'border-tactical/30 bg-tactical/5' : 'border-danger/30 bg-danger/5'}`}
+                >
+                  <div className="flex items-start gap-2">
+                    {analysisResult.success ? (
+                      <Check size={14} className="text-tactical mt-0.5" />
+                    ) : (
+                      <AlertCircle size={14} className="text-danger mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <p className="text-xs text-txt-primary">{analysisResult.text}</p>
+                      {analysisResult.confidence && (
+                        <p className="text-[10px] text-txt-muted mt-1">
+                          Confianca: <span className={analysisResult.confidence === 'high' ? 'text-tactical' : analysisResult.confidence === 'medium' ? 'text-orange-400' : 'text-danger'}>{analysisResult.confidence}</span>
+                        </p>
+                      )}
+                      {analysisResult.suggestions?.length > 0 && (
+                        <ul className="text-[10px] text-txt-muted mt-1.5 space-y-0.5">
+                          {analysisResult.suggestions.map((s, i) => (
+                            <li key={i}>• {s}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Meal Type */}
               <div>
                 <label className="font-heading text-[10px] uppercase tracking-wider text-txt-secondary mb-1 block">Tipo</label>
                 <div className="flex gap-1 flex-wrap">
@@ -172,6 +292,8 @@ export default function MealsPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Macros Grid */}
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { key: 'calories', label: 'Calorias', unit: 'kcal' },
@@ -184,6 +306,7 @@ export default function MealsPage() {
                     <div className="relative">
                       <input
                         type="number"
+                        data-testid={`meal-${f.key}`}
                         value={form[f.key]}
                         onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
                         className="w-full bg-bg border border-border-default text-txt-primary placeholder:text-txt-muted focus:border-tactical px-3 py-2 pr-8 outline-none text-sm"
@@ -194,9 +317,10 @@ export default function MealsPage() {
                   </div>
                 ))}
               </div>
+
               {/* Photo Upload */}
               <div>
-                <label className="font-heading text-[10px] uppercase tracking-wider text-txt-secondary mb-1 block">Foto da Refeicao</label>
+                <label className="font-heading text-[10px] uppercase tracking-wider text-txt-secondary mb-1 block">Foto da Refeicao (Opcional)</label>
                 <div className="flex gap-2">
                   <label className="flex-1 bg-bg border border-border-default text-txt-muted text-xs py-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-tactical/50 transition-all">
                     <Camera size={14} />
@@ -226,6 +350,8 @@ export default function MealsPage() {
                   )}
                 </div>
               </div>
+
+              {/* Submit Button */}
               <button
                 data-testid="meal-submit"
                 type="submit"
