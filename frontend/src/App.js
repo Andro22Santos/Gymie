@@ -71,6 +71,8 @@ function App() {
           <Route path="/chat" element={<PrivateRoute><AppLayout><ChatPage /></AppLayout></PrivateRoute>} />
           <Route path="/meals" element={<PrivateRoute><AppLayout><MealsPage /></AppLayout></PrivateRoute>} />
           <Route path="/water" element={<PrivateRoute><AppLayout><WaterPage /></AppLayout></PrivateRoute>} />
+          <Route path="/workout" element={<PrivateRoute><AppLayout><WorkoutPage /></AppLayout></PrivateRoute>} />
+          <Route path="/progress" element={<PrivateRoute><AppLayout><ProgressPage /></AppLayout></PrivateRoute>} />
           <Route path="/settings" element={<PrivateRoute><AppLayout><SettingsPage /></AppLayout></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
