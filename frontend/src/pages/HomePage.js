@@ -125,6 +125,48 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Actionable Insights */}
+      {actionableInsights.length > 0 && (
+        <div data-testid="home-insights" className="bg-surface border border-border-default p-4 animate-slide-up stagger-1">
+          <button 
+            onClick={() => setShowInsights(!showInsights)}
+            className="flex items-center justify-between w-full text-left"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle size={14} className="text-tactical" strokeWidth={1.5} />
+              <span className="font-heading text-xs uppercase tracking-wider text-txt-secondary">
+                Atencao ({actionableInsights.length})
+              </span>
+            </div>
+            {showInsights ? <ChevronUp size={14} className="text-txt-muted" /> : <ChevronDown size={14} className="text-txt-muted" />}
+          </button>
+          
+          {showInsights && (
+            <div className="mt-3 space-y-2">
+              {actionableInsights.map((insight, idx) => {
+                const InsightIcon = ICON_MAP[insight.icon] || Target;
+                return (
+                  <div 
+                    key={idx}
+                    data-testid={`home-insight-${insight.type}`}
+                    className="flex items-center gap-3 p-2.5 border"
+                    style={{ borderColor: `${insight.color}30`, background: `${insight.color}08` }}
+                  >
+                    <InsightIcon size={16} style={{ color: insight.color }} strokeWidth={1.5} />
+                    <span className="text-xs text-txt-primary flex-1">{insight.message}</span>
+                    {insight.priority === 'high' && (
+                      <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 bg-danger/20 text-danger">
+                        !
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Macros */}
       <div data-testid="macros-card" className="bg-surface border border-border-default p-4 space-y-3 animate-slide-up stagger-2">
         <div className="flex items-center gap-2 mb-1">
