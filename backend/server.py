@@ -38,6 +38,8 @@ async def lifespan(app: FastAPI):
     await db.workout_plans.create_index("user_id")
     await db.workout_sessions.create_index([("user_id", 1), ("date", 1)])
     await db.body_metrics.create_index([("user_id", 1), ("date", 1)])
+    await db.memory_facts.create_index("user_id")
+    await db.weekly_summaries.create_index([("user_id", 1), ("week", -1)])
     yield
     app.state.mongo_client.close()
 
@@ -146,6 +148,7 @@ class MealCreate(BaseModel):
     carbs: Optional[float] = 0
     fat: Optional[float] = 0
     time: Optional[str] = None
+    photo_url: Optional[str] = None
 
 class WaterCreate(BaseModel):
     amount_ml: int
@@ -187,6 +190,10 @@ class BodyMetricCreate(BaseModel):
     weight: float
     body_fat_pct: Optional[float] = None
     notes: Optional[str] = None
+
+class MemoryFactCreate(BaseModel):
+    fact: str
+    category: Optional[str] = "general"
 
 
 # ── Auth Endpoints ───────────────────────────────────────────
