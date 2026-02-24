@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api';
-import { Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare } from 'lucide-react';
+import { Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare, Brain, TrendingUp, Camera, Zap } from 'lucide-react';
 
 function renderMarkdown(text) {
   if (!text) return '';
@@ -11,16 +11,24 @@ function renderMarkdown(text) {
 }
 
 const MODES = [
-  { id: 'companion', label: 'Companheiro', icon: MessageSquare },
-  { id: 'nutrition', label: 'Alimentacao', icon: UtensilsCrossed },
-  { id: 'workout', label: 'Treino', icon: Dumbbell },
+  { id: 'companion', label: 'Companheiro', icon: MessageSquare, color: '#D4FF00' },
+  { id: 'nutrition', label: 'Alimentacao', icon: UtensilsCrossed, color: '#FF9500' },
+  { id: 'workout', label: 'Treino', icon: Dumbbell, color: '#A855F7' },
 ];
 
+const AGENT_ICONS = {
+  companion: MessageSquare,
+  nutrition: UtensilsCrossed,
+  workout: Dumbbell,
+  analysis: TrendingUp,
+  photo: Camera,
+};
+
 const QUICK_SUGGESTIONS = [
-  'Registrar refeicao',
-  'Como estou hoje?',
-  'Proxima missao',
-  'Dica de treino',
+  'Como estao meus macros?',
+  'Sugestao de refeicao agora',
+  'Analise meu progresso',
+  'Dica pro treino de hoje',
   'Preciso de motivacao',
 ];
 
@@ -32,6 +40,7 @@ export default function ChatPage() {
   const [mode, setMode] = useState('companion');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [agents, setAgents] = useState([]);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -41,9 +50,13 @@ export default function ChatPage() {
 
   const fetchThreads = useCallback(async () => {
     try {
-      const res = await api.get('/api/chat/threads');
-      const t = res.data.threads || [];
+      const [threadsRes, agentsRes] = await Promise.all([
+        api.get('/api/chat/threads'),
+        api.get('/api/agents'),
+      ]);
+      const t = threadsRes.data.threads || [];
       setThreads(t);
+      setAgents(agentsRes.data.agents || []);
       if (t.length > 0) {
         setActiveThread(t[0].id);
       } else {
@@ -120,7 +133,8 @@ export default function ChatPage() {
               key={m.id}
               data-testid={`chat-mode-${m.id}`}
               onClick={() => setMode(m.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-ui uppercase tracking-wider transition-all border ${mode === m.id ? 'border-tactical bg-tactical/10 text-tactical' : 'border-border-default text-txt-muted hover:border-txt-muted'}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-ui uppercase tracking-wider transition-all border"
+              style={mode === m.id ? { borderColor: m.color, background: `${m.color}15`, color: m.color } : { borderColor: '#27272A', color: '#52525B' }}
             >
               <Icon size={12} strokeWidth={1.5} /> {m.label}
             </button>
@@ -131,35 +145,68 @@ export default function ChatPage() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="text-center py-12">
-            <MessageSquare size={32} className="text-txt-muted mx-auto mb-3" strokeWidth={1} />
-            <p className="text-sm text-txt-muted">Comece uma conversa com seu assistente.</p>
+          <div className="text-center py-8">
+            <div className="flex justify-center gap-3 mb-4">
+              {agents.filter(a => a.id !== 'photo').map((a) => {
+                const Icon = AGENT_ICONS[a.id] || Brain;
+                return (
+                  <div key={a.id} className="flex flex-col items-center gap-1">
+                    <div className="w-10 h-10 border flex items-center justify-center" style={{ borderColor: `${a.color}40`, background: `${a.color}10` }}>
+                      <Icon size={16} style={{ color: a.color }} strokeWidth={1.5} />
+                    </div>
+                    <span className="text-[9px] font-ui uppercase tracking-wider text-txt-muted">{a.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-sm text-txt-secondary mb-1">Agentes especializados com contexto compartilhado</p>
+            <p className="text-[10px] text-txt-muted">Cada agente conhece seu perfil, rotina e insights dos outros agentes.</p>
           </div>
         )}
 
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-            <div
-              data-testid={`chat-msg-${msg.role}`}
-              className={`max-w-[85%] px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-tactical/15 border border-tactical/30 text-txt-primary'
-                  : 'bg-surface border border-border-default text-txt-primary'
-              }`}
-            >
-              <p className="text-sm leading-relaxed whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-              <p className="font-data text-[10px] text-txt-muted mt-2">
-                {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-              </p>
+        {messages.map((msg) => {
+          const isUser = msg.role === 'user';
+          const agentColor = msg.agent_color || '#D4FF00';
+          const AgentIcon = AGENT_ICONS[msg.agent_id] || MessageSquare;
+
+          return (
+            <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+              <div className="max-w-[85%]">
+                {/* Agent badge for AI messages */}
+                {!isUser && msg.agent_name && (
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <AgentIcon size={10} style={{ color: agentColor }} strokeWidth={2} />
+                    <span className="text-[9px] font-ui uppercase tracking-wider" style={{ color: agentColor }}>
+                      {msg.agent_code || 'AI'}
+                    </span>
+                    <span className="text-[9px] text-txt-muted">| {msg.agent_name}</span>
+                  </div>
+                )}
+                <div
+                  data-testid={`chat-msg-${msg.role}`}
+                  className={`px-4 py-3 ${isUser
+                    ? 'bg-tactical/15 border border-tactical/30 text-txt-primary'
+                    : 'bg-surface border text-txt-primary'
+                  }`}
+                  style={!isUser ? { borderColor: `${agentColor}25` } : {}}
+                >
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                  <p className="font-data text-[10px] text-txt-muted mt-2">
+                    {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {sending && (
           <div className="flex justify-start animate-fade-in">
             <div className="bg-surface border border-border-default px-4 py-3 flex items-center gap-2">
               <Loader2 size={14} className="text-tactical animate-spin" />
-              <span className="text-xs text-txt-muted">Digitando...</span>
+              <span className="text-xs text-txt-muted flex items-center gap-1">
+                <Zap size={10} className="text-tactical" /> Agente processando...
+              </span>
             </div>
           </div>
         )}
@@ -172,7 +219,7 @@ export default function ChatPage() {
           {QUICK_SUGGESTIONS.map((s) => (
             <button
               key={s}
-              data-testid={`quick-suggestion`}
+              data-testid="quick-suggestion"
               onClick={() => sendMessage(s)}
               className="whitespace-nowrap px-3 py-1.5 text-xs border border-border-default text-txt-secondary hover:border-tactical hover:text-tactical transition-all"
             >
