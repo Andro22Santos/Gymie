@@ -147,7 +147,7 @@ export default function ChatPage() {
                   : 'bg-surface border border-border-default text-txt-primary'
               }`}
             >
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
               <p className="font-data text-[10px] text-txt-muted mt-2">
                 {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </p>
