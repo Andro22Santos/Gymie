@@ -1307,7 +1307,8 @@ class MealAnalyzeRequest(BaseModel):
     photo_base64: Optional[str] = None
 
 @app.post("/api/meals/analyze")
-async def analyze_meal(req: MealAnalyzeRequest, user=Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def analyze_meal(request: Request, req: MealAnalyzeRequest, user=Depends(get_current_user)):
     """
     Photo/text analysis of a meal - estimates macros using AI.
     
