@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
-import { UtensilsCrossed, Plus, X, Trash2, Clock } from 'lucide-react';
+import { UtensilsCrossed, Plus, X, Trash2, Clock, Camera, Image } from 'lucide-react';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: 'Cafe da manha' },
