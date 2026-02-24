@@ -654,7 +654,7 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
     await db.chat_messages.insert_one(user_msg)
     del user_msg["_id"]
 
-    # Build context for AI
+    # Build shared context for all agents
     profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
     user_doc = await db.users.find_one({"_id": uid})
     date = today_str()
@@ -664,6 +664,9 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
     checkin = await db.daily_checkins.find_one({"user_id": uid, "date": date}, {"_id": 0})
     memory_facts = await db.memory_facts.find({"user_id": uid}, {"_id": 0}).to_list(20)
     workout_sessions_today = await db.workout_sessions.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(5)
+    agent_insights = await db.agent_insights.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(15)
+    workout_plans = await db.workout_plans.find({"user_id": uid}, {"_id": 0}).to_list(10)
+    weight_history = await db.body_metrics.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(7)
 
     recent_messages = await db.chat_messages.find(
         {"thread_id": thread_id}, {"_id": 0}
@@ -674,6 +677,9 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
         "user_name": user_doc.get("name", "Soldado") if user_doc else "Soldado",
         "profile": profile,
         "memory_facts": memory_facts,
+        "agent_insights": agent_insights,
+        "workout_plans": workout_plans,
+        "weight_history": [{"date": m["date"], "weight": m["weight"]} for m in weight_history],
         "today": {
             "date": date,
             "meals": meals,
@@ -689,27 +695,33 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
     }
 
     persona_style = profile.get("persona_style", "tactical") if profile else "tactical"
-    if req.mode:
-        mode = req.mode
-    else:
-        mode = "companion"
+    mode = req.mode or "companion"
 
-    # Generate AI response
+    # Route through multi-agent orchestrator
     try:
-        ai_result = await generate_ai_response(
+        ai_result = await orchestrate_response(
             api_key=EMERGENT_LLM_KEY,
             user_message=req.content,
             context=context,
             persona_style=persona_style,
             mode=mode,
             thread_id=thread_id,
+            db=db,
+            user_id=uid,
         )
         ai_text = ai_result.get("message_text", "Desculpe, nao consegui processar sua mensagem.")
+        agent_info = {
+            "agent_id": ai_result.get("agent_id"),
+            "agent_name": ai_result.get("agent_name"),
+            "agent_code": ai_result.get("agent_code"),
+            "agent_color": ai_result.get("agent_color"),
+        }
     except Exception as e:
-        ai_text = f"Sistema temporariamente indisponivel. Tente novamente em instantes."
+        ai_text = "Sistema temporariamente indisponivel. Tente novamente em instantes."
+        agent_info = {"agent_id": "companion", "agent_name": "Companheiro", "agent_code": "COMP", "agent_color": "#D4FF00"}
         print(f"AI Error: {e}")
 
-    # Save AI message
+    # Save AI message with agent metadata
     ai_msg = {
         "id": str(uuid.uuid4()),
         "thread_id": thread_id,
@@ -717,6 +729,10 @@ async def send_message(thread_id: str, req: ChatMessageCreate, user=Depends(get_
         "role": "assistant",
         "content": ai_text,
         "mode": mode,
+        "agent_id": agent_info.get("agent_id"),
+        "agent_name": agent_info.get("agent_name"),
+        "agent_code": agent_info.get("agent_code"),
+        "agent_color": agent_info.get("agent_color"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.chat_messages.insert_one(ai_msg)
