@@ -184,7 +184,7 @@ export default function HomePage() {
           { icon: MessageSquare, label: 'Chat', path: '/chat', color: 'text-tactical' },
           { icon: UtensilsCrossed, label: 'Refeicao', path: '/meals', color: 'text-orange-400' },
           { icon: Droplet, label: 'Agua', path: '/water', color: 'text-info' },
-          { icon: Dumbbell, label: 'Treino', path: '/settings', color: 'text-purple-400' },
+          { icon: Dumbbell, label: 'Treino', path: '/workout', color: 'text-purple-400' },
         ].map((a) => (
           <button
             key={a.label}
