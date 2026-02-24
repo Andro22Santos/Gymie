@@ -351,7 +351,7 @@ INSTRUCOES FINAIS:
         response_text = parts[0].strip()
         insight_text = parts[1].strip() if len(parts) > 1 else None
 
-    if insight_text and db and user_id:
+    if insight_text and db is not None and user_id:
         await db.agent_insights.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user_id,
