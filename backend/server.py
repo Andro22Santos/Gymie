@@ -13,6 +13,7 @@ import jwt as pyjwt
 import bcrypt
 
 from ai_service import generate_ai_response, generate_reminder_message
+from agents import orchestrate_response, analyze_meal_photo, get_agents_info, classify_intent
 
 load_dotenv()
 
