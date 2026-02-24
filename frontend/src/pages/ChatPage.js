@@ -2,6 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api';
 import { Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare } from 'lucide-react';
 
+function renderMarkdown(text) {
+  if (!text) return '';
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-tactical font-semibold">$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br/>');
+}
+
 const MODES = [
   { id: 'companion', label: 'Companheiro', icon: MessageSquare },
   { id: 'nutrition', label: 'Alimentacao', icon: UtensilsCrossed },
