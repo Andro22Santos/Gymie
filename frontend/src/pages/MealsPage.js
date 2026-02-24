@@ -194,6 +194,38 @@ export default function MealsPage() {
                   </div>
                 ))}
               </div>
+              {/* Photo Upload */}
+              <div>
+                <label className="font-heading text-[10px] uppercase tracking-wider text-txt-secondary mb-1 block">Foto da Refeicao</label>
+                <div className="flex gap-2">
+                  <label className="flex-1 bg-bg border border-border-default text-txt-muted text-xs py-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-tactical/50 transition-all">
+                    <Camera size={14} />
+                    <span>{form.photo_url ? 'Foto adicionada' : 'Adicionar foto'}</span>
+                    <input
+                      data-testid="meal-photo-input"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => setForm({ ...form, photo_url: ev.target.result });
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                  {form.photo_url && (
+                    <div className="relative w-14 h-10 border border-border-default overflow-hidden">
+                      <img src={form.photo_url} alt="" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => setForm({ ...form, photo_url: '' })} className="absolute top-0 right-0 bg-black/70 p-0.5">
+                        <X size={10} className="text-white" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
               <button
                 data-testid="meal-submit"
                 type="submit"
