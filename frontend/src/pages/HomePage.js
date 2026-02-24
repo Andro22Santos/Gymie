@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
-import { Target, MessageSquare, UtensilsCrossed, Droplet, Dumbbell, Clock, Check, X, Timer, ChevronRight, Zap, Moon, Smile } from 'lucide-react';
+import { Target, MessageSquare, UtensilsCrossed, Droplet, Dumbbell, Clock, Check, X, Timer, ChevronRight, Zap, Moon, Smile, Settings } from 'lucide-react';
 
 export default function HomePage() {
   const { user } = useAuth();
