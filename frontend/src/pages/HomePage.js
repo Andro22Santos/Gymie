@@ -24,8 +24,12 @@ export default function HomePage() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const res = await api.get('/api/dashboard/today');
-      setDashboard(res.data);
+      const [dashRes, insightsRes] = await Promise.all([
+        api.get('/api/dashboard/today'),
+        api.get('/api/agents/insights'),
+      ]);
+      setDashboard(dashRes.data);
+      setActionableInsights(insightsRes.data.actionable || []);
     } catch (err) {
       console.error(err);
     } finally {
