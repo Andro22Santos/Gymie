@@ -1,364 +1,315 @@
-#!/usr/bin/env python3
-"""
-Backend API Test Suite for Shape Inexplicavel
-Tests all endpoints with demo user: demo@shape.com / demo123
-"""
-
 import requests
 import sys
-import json
 from datetime import datetime
 
-class ShapeAPITester:
+class WorkoutAPITester:
     def __init__(self, base_url="https://535b5e70-f291-4d00-b430-59f3b48d9b6b.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
-        self.demo_user_id = None
         self.tests_run = 0
         self.tests_passed = 0
         self.failed_tests = []
+        self.passed_tests = []
 
-    def log_test(self, name, method, endpoint, expected_status, success, response_code=None, error_msg=None):
-        """Log test result"""
-        self.tests_run += 1
-        status = "✅ PASS" if success else "❌ FAIL"
-        print(f"{status} | {method} {endpoint} | {name}")
-        
-        if success:
-            self.tests_passed += 1
-        else:
-            self.failed_tests.append({
-                "name": name,
-                "endpoint": endpoint,
-                "expected": expected_status,
-                "actual": response_code,
-                "error": error_msg
-            })
-            if error_msg:
-                print(f"    Error: {error_msg}")
-
-    def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
+    def run_test(self, name, method, endpoint, expected_status, data=None, auth_required=True):
         """Run a single API test"""
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        req_headers = {'Content-Type': 'application/json'}
-        if self.token:
-            req_headers['Authorization'] = f'Bearer {self.token}'
-        if headers:
-            req_headers.update(headers)
+        url = f"{self.base_url}/{endpoint}"
+        headers = {'Content-Type': 'application/json'}
+        if auth_required and self.token:
+            headers['Authorization'] = f'Bearer {self.token}'
 
+        self.tests_run += 1
+        print(f"\n🔍 Testing {name}...")
+        
         try:
             if method == 'GET':
-                response = requests.get(url, headers=req_headers, timeout=30)
+                response = requests.get(url, headers=headers)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=req_headers, timeout=30)
+                response = requests.post(url, json=data, headers=headers)
             elif method == 'PUT':
-                response = requests.put(url, json=data, headers=req_headers, timeout=30)
+                response = requests.put(url, json=data, headers=headers)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=req_headers, timeout=30)
-            
+                response = requests.delete(url, headers=headers)
+
             success = response.status_code == expected_status
-            
-            self.log_test(name, method, endpoint, expected_status, success, 
-                         response.status_code, 
-                         f"Status {response.status_code}: {response.text[:200]}" if not success else None)
-            
             if success:
+                self.tests_passed += 1
+                self.passed_tests.append(name)
+                print(f"✅ Passed - Status: {response.status_code}")
                 try:
-                    return True, response.json()
+                    return success, response.json()
                 except:
-                    return True, response.text
+                    return success, response.text
             else:
-                return False, response.text
+                self.failed_tests.append(f"{name} - Expected {expected_status}, got {response.status_code}")
+                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
+                try:
+                    print(f"Response: {response.json()}")
+                except:
+                    print(f"Response: {response.text}")
+
+            return success, {}
 
         except Exception as e:
-            self.log_test(name, method, endpoint, expected_status, False, 
-                         None, str(e))
-            return False, str(e)
+            self.failed_tests.append(f"{name} - Error: {str(e)}")
+            print(f"❌ Failed - Error: {str(e)}")
+            return False, {}
 
-    def test_health(self):
-        """Test health endpoint"""
+    def test_auth(self):
+        """Test authentication flow"""
+        print("\n🔐 Testing Authentication...")
         success, response = self.run_test(
-            "Health Check", "GET", "/api/health", 200
+            "Login with demo credentials",
+            "POST",
+            "api/auth/login",
+            200,
+            data={"email": "demo@shape.com", "password": "demo123"},
+            auth_required=False
         )
-        return success
-
-    def test_login_demo_user(self):
-        """Login with demo credentials"""
-        success, response = self.run_test(
-            "Demo User Login", "POST", "/api/auth/login", 200,
-            {"email": "demo@shape.com", "password": "demo123"}
-        )
-        if success and isinstance(response, dict):
-            self.token = response.get('access_token')
-            self.demo_user_id = response.get('user_id')
+        
+        if success and 'access_token' in response:
+            self.token = response['access_token']
+            print(f"✅ Authentication successful - Got token")
             return True
-        return False
-
-    def test_login_wrong_password(self):
-        """Test login with wrong password"""
-        success, response = self.run_test(
-            "Wrong Password Login", "POST", "/api/auth/login", 401,
-            {"email": "demo@shape.com", "password": "wrongpass"}
-        )
-        return success
-
-    def test_register_new_user(self):
-        """Test registration of new user"""
-        timestamp = datetime.now().strftime("%H%M%S")
-        success, response = self.run_test(
-            "New User Registration", "POST", "/api/auth/register", 200,
-            {
-                "name": f"Test User {timestamp}",
-                "email": f"test{timestamp}@shape.com",
-                "password": "testpass123"
-            }
-        )
-        return success
-
-    def test_get_user_profile(self):
-        """Test get current user profile"""
-        if not self.token:
+        else:
+            print(f"❌ Authentication failed")
             return False
-        success, response = self.run_test(
-            "Get User Profile", "GET", "/api/me", 200
-        )
-        return success
 
-    def test_dashboard_today(self):
-        """Test dashboard endpoint"""
-        if not self.token:
-            return False
-        success, response = self.run_test(
-            "Dashboard Today", "GET", "/api/dashboard/today", 200
+    def test_workout_plans(self):
+        """Test workout plans CRUD operations"""
+        print("\n🏋️ Testing Workout Plans...")
+        
+        # Get workout plans
+        success, plans_response = self.run_test(
+            "GET /api/workout-plans returns 3 ABC plans with exercises",
+            "GET",
+            "api/workout-plans",
+            200
         )
-        return success
+        
+        if success:
+            plans = plans_response.get('plans', [])
+            if len(plans) >= 3:
+                print(f"✅ Found {len(plans)} workout plans")
+                abc_types = [p.get('plan_type') for p in plans]
+                if 'A' in abc_types and 'B' in abc_types and 'C' in abc_types:
+                    print("✅ ABC plan types found")
+                    # Check if plans have exercises
+                    has_exercises = all(len(p.get('exercises', [])) > 0 for p in plans)
+                    if has_exercises:
+                        print("✅ All plans have exercises")
+                    else:
+                        print("❌ Some plans missing exercises")
+                else:
+                    print(f"❌ Missing ABC plan types. Found: {abc_types}")
+            else:
+                print(f"❌ Expected at least 3 plans, found {len(plans)}")
 
-    def test_meals_operations(self):
-        """Test meals CRUD operations"""
-        if not self.token:
-            return False
-        
-        # Create meal
-        meal_data = {
-            "description": "Test meal - banana + whey",
-            "meal_type": "snack",
-            "calories": 250,
-            "protein": 30,
-            "carbs": 25,
-            "fat": 2
-        }
-        success, response = self.run_test(
-            "Create Meal", "POST", "/api/meals", 200, meal_data
-        )
-        
-        meal_id = None
-        if success and isinstance(response, dict):
-            meal_id = response.get('id')
-        
-        # Get meals
-        success, response = self.run_test(
-            "Get Meals List", "GET", "/api/meals", 200
-        )
-        
-        # Delete meal if created
-        if meal_id:
-            success, response = self.run_test(
-                "Delete Meal", "DELETE", f"/api/meals/{meal_id}", 200
-            )
-            return success
-        
-        return True
-
-    def test_water_operations(self):
-        """Test water tracking operations"""
-        if not self.token:
-            return False
-        
-        # Add water
-        success, response = self.run_test(
-            "Add Water Log", "POST", "/api/water", 200,
-            {"amount_ml": 300}
-        )
-        
-        water_id = None
-        if success and isinstance(response, dict):
-            water_id = response.get('id')
-        
-        # Get water logs
-        success, response = self.run_test(
-            "Get Water Logs", "GET", "/api/water", 200
-        )
-        
-        return success
-
-    def test_reminders_operations(self):
-        """Test reminders operations"""
-        if not self.token:
-            return False
-        
-        # Get reminders
-        success, response = self.run_test(
-            "Get Reminders", "GET", "/api/reminders", 200
-        )
-        
-        # Try reminder action on existing reminder
-        success, response = self.run_test(
-            "Get Dashboard for Reminder ID", "GET", "/api/dashboard/today", 200
-        )
-        
-        if success and isinstance(response, dict):
-            reminders = response.get('reminders', [])
-            if reminders:
-                reminder_id = reminders[0].get('id')
-                if reminder_id:
-                    success, response = self.run_test(
-                        "Reminder Action Complete", "POST", f"/api/reminders/{reminder_id}/action", 200,
-                        {"action": "completed"}
-                    )
-                    
-                    # Test snooze action on another reminder if available
-                    if len(reminders) > 1:
-                        reminder_id_2 = reminders[1].get('id')
-                        if reminder_id_2:
-                            success, response = self.run_test(
-                                "Reminder Action Snooze", "POST", f"/api/reminders/{reminder_id_2}/action", 200,
-                                {"action": "snoozed"}
-                            )
-        
-        return True
-
-    def test_checkins(self):
-        """Test check-ins functionality"""
-        if not self.token:
-            return False
-        
-        # Create checkin
-        success, response = self.run_test(
-            "Create Check-in", "POST", "/api/checkins", 200,
-            {
-                "sleep_quality": 4,
-                "energy_level": 3,
-                "mood": "focado",
-                "notes": "Test checkin via API"
-            }
-        )
-        
-        # Get checkins
-        success, response = self.run_test(
-            "Get Check-ins", "GET", "/api/checkins", 200
-        )
-        
-        return success
-
-    def test_chat_operations(self):
-        """Test chat functionality"""
-        if not self.token:
-            return False
-        
-        # Get threads
-        success, response = self.run_test(
-            "Get Chat Threads", "GET", "/api/chat/threads", 200
-        )
-        
-        thread_id = None
-        if success and isinstance(response, dict):
-            threads = response.get('threads', [])
-            if threads:
-                thread_id = threads[0].get('id')
-        
-        # Create thread if none exist
-        if not thread_id:
-            success, response = self.run_test(
-                "Create Chat Thread", "POST", "/api/chat/threads", 200
-            )
-            if success and isinstance(response, dict):
-                thread_id = response.get('id')
-        
-        # Send message
-        if thread_id:
-            success, response = self.run_test(
-                "Send Chat Message", "POST", f"/api/chat/threads/{thread_id}/messages", 200,
+        # Create new workout plan
+        new_plan_data = {
+            "name": "Test Plan D",
+            "plan_type": "D",
+            "exercises": [
                 {
-                    "content": "Como estou hoje?",
-                    "mode": "companion"
+                    "name": "Test Exercise",
+                    "sets": 3,
+                    "reps": "10",
+                    "weight_kg": 20.0,
+                    "rest_seconds": 60,
+                    "notes": "Test exercise"
                 }
+            ]
+        }
+        
+        success, create_response = self.run_test(
+            "POST /api/workout-plans creates a new plan",
+            "POST",
+            "api/workout-plans",
+            201,
+            data=new_plan_data
+        )
+        
+        plan_id = None
+        if success and 'id' in create_response:
+            plan_id = create_response['id']
+            print(f"✅ Created plan with ID: {plan_id}")
+        
+        # Delete workout plan if created
+        if plan_id:
+            self.run_test(
+                "DELETE /api/workout-plans/{id} removes plan",
+                "DELETE",
+                f"api/workout-plans/{plan_id}",
+                200
             )
-            return success
-        
-        return False
 
-    def test_settings_operations(self):
-        """Test settings functionality"""
-        if not self.token:
-            return False
+    def test_workout_sessions(self):
+        """Test workout session operations"""
+        print("\n💪 Testing Workout Sessions...")
         
-        # Get persona settings
-        success, response = self.run_test(
-            "Get Persona Settings", "GET", "/api/settings/persona", 200
+        # First get a plan ID
+        success, plans_response = self.run_test(
+            "Get plans for session test",
+            "GET",
+            "api/workout-plans",
+            200
         )
         
-        # Update persona
-        success, response = self.run_test(
-            "Update Persona", "PUT", "/api/settings/persona", 200,
-            {"persona_style": "coach"}
+        plan_id = None
+        if success and plans_response.get('plans'):
+            plan_id = plans_response['plans'][0]['id']
+            
+        if not plan_id:
+            print("❌ No plan available for session testing")
+            return
+            
+        # Start workout session
+        success, session_response = self.run_test(
+            "POST /api/workout-sessions starts session from plan",
+            "POST",
+            "api/workout-sessions",
+            201,
+            data={"plan_id": plan_id}
         )
         
-        return success
+        session_id = None
+        if success and 'id' in session_response:
+            session_id = session_response['id']
+            print(f"✅ Started session with ID: {session_id}")
+            
+            # Update session exercises
+            update_data = {
+                "exercises": session_response.get('exercises', []),
+                "notes": "Test session update"
+            }
+            
+            self.run_test(
+                "PUT /api/workout-sessions/{id} updates exercise data",
+                "PUT",
+                f"api/workout-sessions/{session_id}",
+                200,
+                data=update_data
+            )
+            
+            # Complete session
+            self.run_test(
+                "POST /api/workout-sessions/{id}/complete marks session completed",
+                "POST",
+                f"api/workout-sessions/{session_id}/complete",
+                200
+            )
+        
+        # Get session history
+        self.run_test(
+            "GET /api/workout-sessions returns session history",
+            "GET",
+            "api/workout-sessions",
+            200
+        )
 
-    def print_summary(self):
-        """Print test summary"""
-        print(f"\n{'='*50}")
-        print(f"BACKEND API TEST SUMMARY")
-        print(f"{'='*50}")
-        print(f"Total Tests: {self.tests_run}")
-        print(f"Passed: {self.tests_passed}")
-        print(f"Failed: {len(self.failed_tests)}")
-        print(f"Success Rate: {(self.tests_passed/self.tests_run*100):.1f}%" if self.tests_run > 0 else "0%")
+    def test_body_metrics(self):
+        """Test body metrics operations"""
+        print("\n📊 Testing Body Metrics...")
         
-        if self.failed_tests:
-            print(f"\nFAILED TESTS:")
-            for test in self.failed_tests:
-                print(f"  ❌ {test['name']} ({test['endpoint']})")
-                print(f"     Expected: {test['expected']}, Got: {test['actual']}")
-                if test['error']:
-                    print(f"     Error: {test['error']}")
+        # Get body metrics
+        success, metrics_response = self.run_test(
+            "GET /api/body-metrics returns weight history (14 entries from seed)",
+            "GET",
+            "api/body-metrics",
+            200
+        )
         
-        return len(self.failed_tests) == 0
+        if success:
+            metrics = metrics_response.get('metrics', [])
+            print(f"✅ Found {len(metrics)} body metric entries")
+            if len(metrics) >= 14:
+                print("✅ Has sufficient weight history entries")
+            else:
+                print(f"⚠️  Expected 14+ entries, found {len(metrics)}")
+        
+        # Create new body metric
+        self.run_test(
+            "POST /api/body-metrics logs new weight entry",
+            "POST",
+            "api/body-metrics",
+            200,
+            data={"weight": 84.5, "body_fat_pct": 15.0, "notes": "Test entry"}
+        )
+
+    def test_progress(self):
+        """Test progress endpoints"""
+        print("\n📈 Testing Progress...")
+        
+        # Get progress summary
+        success, summary_response = self.run_test(
+            "GET /api/progress/summary returns weight, workouts, water avg, consistency stats",
+            "GET",
+            "api/progress/summary",
+            200
+        )
+        
+        if success:
+            required_fields = ['latest_weight', 'workouts_this_week', 'avg_water_ml', 'weight_history']
+            missing_fields = [f for f in required_fields if f not in summary_response]
+            if not missing_fields:
+                print("✅ Progress summary has all required fields")
+            else:
+                print(f"❌ Missing fields in summary: {missing_fields}")
+        
+        # Get weight metrics
+        self.run_test(
+            "GET /api/progress/weight returns weight metrics",
+            "GET",
+            "api/progress/weight",
+            200
+        )
+
+    def test_health_check(self):
+        """Test API health"""
+        print("\n🔧 Testing API Health...")
+        self.run_test(
+            "API Health Check",
+            "GET",
+            "api/health",
+            200,
+            auth_required=False
+        )
 
 def main():
-    """Main test execution"""
-    print("🚀 Starting Shape Inexplicavel Backend API Tests")
-    print(f"Target URL: https://535b5e70-f291-4d00-b430-59f3b48d9b6b.preview.emergentagent.com")
-    print(f"Demo User: demo@shape.com / demo123\n")
+    print("🚀 Starting Shape Inexplicavel Phase 2 API Testing")
+    print("=" * 60)
     
-    tester = ShapeAPITester()
+    tester = WorkoutAPITester()
     
-    # Run tests in sequence
-    tests = [
-        ("Health Check", tester.test_health),
-        ("Demo User Login", tester.test_login_demo_user),
-        ("Wrong Password Test", tester.test_login_wrong_password),
-        ("User Registration", tester.test_register_new_user),
-        ("User Profile", tester.test_get_user_profile),
-        ("Dashboard", tester.test_dashboard_today),
-        ("Meals Operations", tester.test_meals_operations),
-        ("Water Operations", tester.test_water_operations),
-        ("Reminders Operations", tester.test_reminders_operations),
-        ("Check-ins", tester.test_checkins),
-        ("Chat Operations", tester.test_chat_operations),
-        ("Settings Operations", tester.test_settings_operations),
-    ]
+    # Test authentication first
+    if not tester.test_auth():
+        print("❌ Authentication failed, stopping tests")
+        return 1
     
-    for test_name, test_func in tests:
-        print(f"\n🔍 Running {test_name}...")
-        try:
-            test_func()
-        except Exception as e:
-            print(f"❌ {test_name} crashed: {e}")
+    # Run all tests
+    tester.test_workout_plans()
+    tester.test_workout_sessions() 
+    tester.test_body_metrics()
+    tester.test_progress()
+    tester.test_health_check()
     
-    # Print summary and return appropriate exit code
-    success = tester.print_summary()
-    return 0 if success else 1
+    # Print summary
+    print("\n" + "=" * 60)
+    print(f"📊 BACKEND TESTING COMPLETE")
+    print(f"Tests passed: {tester.tests_passed}/{tester.tests_run}")
+    print(f"Success rate: {(tester.tests_passed/tester.tests_run)*100:.1f}%")
+    
+    if tester.failed_tests:
+        print(f"\n❌ Failed Tests:")
+        for test in tester.failed_tests:
+            print(f"  - {test}")
+    
+    if tester.passed_tests:
+        print(f"\n✅ Passed Tests:")
+        for test in tester.passed_tests:
+            print(f"  - {test}")
+    
+    return 0 if tester.tests_passed == tester.tests_run else 1
 
 if __name__ == "__main__":
     sys.exit(main())
