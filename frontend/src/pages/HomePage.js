@@ -134,14 +134,12 @@ export default function HomePage() {
                 }
               </p>
             </div>
-            {!d?.checkin && (
-              <button
-                onClick={() => setCheckinOpen(true)}
-                className="gymie-btn-primary py-2 px-3 text-xs"
-              >
-                Check-in
-              </button>
-            )}
+            <button
+              onClick={() => navigate('/achievements')}
+              className="gymie-btn-secondary py-2 px-3 text-xs border-orange-400/30 text-orange-400"
+            >
+              🏆 Ver conquistas
+            </button>
           </div>
         </div>
       )}
