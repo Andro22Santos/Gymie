@@ -295,6 +295,122 @@ async def forgot_password(req: ForgotPasswordRequest):
     return {"message": "Se o email existir, enviaremos instrucoes de recuperacao."}
 
 
+# ── Google OAuth (Emergent Auth) ──────────────────────────────
+# REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+
+import httpx
+
+class GoogleSessionRequest(BaseModel):
+    session_id: str
+
+@app.post("/api/auth/google/session")
+async def process_google_session(req: GoogleSessionRequest):
+    """
+    Exchange session_id from Emergent Auth for user data.
+    Creates/updates user in database and returns JWT token.
+    """
+    try:
+        # Call Emergent Auth to get user data from session_id
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": req.session_id},
+                timeout=10.0,
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=401, detail="Sessao invalida ou expirada")
+            
+            data = response.json()
+        
+        email = data.get("email", "").lower()
+        name = data.get("name", "")
+        picture = data.get("picture", "")
+        google_id = data.get("id", "")
+        emergent_session_token = data.get("session_token", "")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="Email nao encontrado na sessao")
+        
+        db = get_db()
+        
+        # Check if user exists by email
+        existing_user = await db.users.find_one({"email": email})
+        
+        if existing_user:
+            # Update existing user with Google info
+            user_id = existing_user["_id"]
+            await db.users.update_one(
+                {"_id": user_id},
+                {"$set": {
+                    "name": name or existing_user.get("name", ""),
+                    "picture": picture,
+                    "google_id": google_id,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }}
+            )
+        else:
+            # Create new user
+            user_id = str(uuid.uuid4())
+            user = {
+                "_id": user_id,
+                "email": email,
+                "name": name or "Usuário",
+                "picture": picture,
+                "google_id": google_id,
+                "password_hash": None,  # No password for Google users
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.users.insert_one(user)
+            
+            # Create profile for new user
+            profile = {
+                "user_id": user_id,
+                "weight": None, "height": None, "goal": None, "goal_weight": None,
+                "routine": {}, "training_days": [], "water_goal_ml": 2500,
+                "persona_style": "tactical",
+                "reminder_times": ["08:00", "11:00", "12:00", "17:30", "21:15", "23:00"],
+                "calorie_target": 2000, "protein_target": 150, "carb_target": 200, "fat_target": 65,
+                "onboarding_completed": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.user_profiles.insert_one(profile)
+        
+        # Store Emergent session token
+        await db.google_sessions.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "user_id": user_id,
+                "session_token": emergent_session_token,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+        
+        # Get profile to check onboarding status
+        profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0})
+        
+        # Generate JWT tokens
+        user_doc = await db.users.find_one({"_id": user_id})
+        access_token = create_access_token(user_id, user_doc.get("name", ""))
+        refresh_token = create_refresh_token(user_id)
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user_id": user_id,
+            "name": user_doc.get("name", ""),
+            "email": email,
+            "picture": picture,
+            "onboarding_completed": profile.get("onboarding_completed", False) if profile else False,
+        }
+        
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao validar sessao: {str(e)}")
+
+
 # ── Profile / Onboarding ────────────────────────────────────
 
 @app.get("/api/me")
