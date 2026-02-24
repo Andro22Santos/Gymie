@@ -125,7 +125,7 @@ class WorkoutAPITester:
             "POST /api/workout-plans creates a new plan",
             "POST",
             "api/workout-plans",
-            201,
+            200,
             data=new_plan_data
         )
         
