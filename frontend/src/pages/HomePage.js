@@ -74,7 +74,12 @@ export default function HomePage() {
     <div className="px-4 pt-6 pb-4 space-y-5">
       {/* Header */}
       <div className="animate-slide-up">
-        <p className="font-data text-[10px] text-txt-muted uppercase tracking-widest">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <div className="flex items-center justify-between">
+          <p className="font-data text-[10px] text-txt-muted uppercase tracking-widest">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <button data-testid="settings-btn" onClick={() => navigate('/settings')} className="p-2 rounded-full hover:bg-white/10 transition-colors">
+            <Settings size={18} className="text-txt-muted" strokeWidth={1.5} />
+          </button>
+        </div>
         <h1 data-testid="home-greeting" className="font-heading text-3xl font-bold uppercase tracking-tight mt-1">
           {d?.persona_style === 'tactical' ? `Bom dia, ${name}` : `Ola, ${name}`}
         </h1>
