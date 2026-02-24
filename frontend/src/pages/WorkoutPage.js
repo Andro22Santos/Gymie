@@ -283,7 +283,50 @@ export default function WorkoutPage() {
 
       {/* History Tab */}
       {tab === 'history' && (
-        <div className="space-y-2 animate-fade-in">
+        <div className="space-y-3 animate-fade-in">
+          {/* Exercise Progression */}
+          {sessions.filter((s) => s.status === 'completed').length > 0 && (
+            <div data-testid="exercise-progression" className="bg-surface border border-purple-400/20 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp size={14} className="text-purple-400" />
+                <span className="font-heading text-xs uppercase tracking-wider text-purple-400">Progressao de Exercicio</span>
+              </div>
+              <div className="flex gap-1 flex-wrap mb-3">
+                {(() => {
+                  const allExercises = new Set();
+                  sessions.filter((s) => s.status === 'completed').forEach((s) => {
+                    s.exercises?.forEach((e) => allExercises.add(e.name));
+                  });
+                  return [...allExercises].map((name) => (
+                    <button key={name} onClick={() => fetchExerciseHistory(name)}
+                      className={`px-2 py-1 text-[9px] font-ui uppercase border transition-all ${selectedExercise === name ? 'border-purple-400 bg-purple-400/10 text-purple-400' : 'border-border-default text-txt-muted hover:border-txt-muted'}`}>
+                      {name}
+                    </button>
+                  ));
+                })()}
+              </div>
+              {exerciseHistory && exerciseHistory.history?.length > 0 && (
+                <div className="space-y-1.5">
+                  {exerciseHistory.history.map((h, i) => (
+                    <div key={i} className="flex items-center justify-between bg-bg border border-border-default px-3 py-2">
+                      <span className="font-data text-[10px] text-txt-muted">{h.date}</span>
+                      <div className="flex gap-3 text-[10px] font-data">
+                        <span className="text-purple-400">{h.max_weight}kg</span>
+                        <span className="text-txt-secondary">{h.total_reps} reps</span>
+                        <span className="text-txt-muted">{h.total_volume}kg vol</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {exerciseHistory && exerciseHistory.history?.length === 0 && (
+                <p className="text-xs text-txt-muted">Nenhum historico para este exercicio.</p>
+              )}
+              {!exerciseHistory && <p className="text-xs text-txt-muted">Selecione um exercicio para ver a progressao.</p>}
+            </div>
+          )}
+
+          {/* Session History */}
           {sessions.filter((s) => s.status === 'completed').length === 0 ? (
             <div className="text-center py-12">
               <Clock size={28} className="text-txt-muted mx-auto mb-2" strokeWidth={1} />
