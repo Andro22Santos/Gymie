@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI):
     await db.chat_threads.create_index("user_id")
     await db.chat_messages.create_index("thread_id")
     await db.daily_checkins.create_index([("user_id", 1), ("date", 1)])
+    await db.workout_plans.create_index("user_id")
+    await db.workout_sessions.create_index([("user_id", 1), ("date", 1)])
+    await db.body_metrics.create_index([("user_id", 1), ("date", 1)])
     yield
     app.state.mongo_client.close()
 
@@ -159,6 +162,31 @@ class ChatMessageCreate(BaseModel):
 
 class ReminderAction(BaseModel):
     action: str  # completed, snoozed, skipped
+
+class ExerciseInput(BaseModel):
+    name: str
+    sets: int = 3
+    reps: str = "12"
+    weight_kg: Optional[float] = None
+    rest_seconds: Optional[int] = 60
+    notes: Optional[str] = None
+
+class WorkoutPlanCreate(BaseModel):
+    name: str
+    plan_type: str = "A"
+    exercises: List[dict] = []
+
+class WorkoutSessionStart(BaseModel):
+    plan_id: str
+
+class WorkoutSessionUpdate(BaseModel):
+    exercises: Optional[List[dict]] = None
+    notes: Optional[str] = None
+
+class BodyMetricCreate(BaseModel):
+    weight: float
+    body_fat_pct: Optional[float] = None
+    notes: Optional[str] = None
 
 
 # ── Auth Endpoints ───────────────────────────────────────────
