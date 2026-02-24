@@ -1,19 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api';
-import { Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare, TrendingUp, Camera, Zap, Droplet, Target, Smile, Bug, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import { 
+  Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare, 
+  TrendingUp, Camera, Droplet, Target, Flame, ChevronDown,
+  Sparkles, Check, Clock
+} from 'lucide-react';
 
 function renderMarkdown(text) {
   if (!text) return '';
   return text
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-tactical font-semibold">$1</strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-gymie font-semibold">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/\n/g, '<br/>');
 }
 
 const MODES = [
-  { id: 'companion', label: 'Companheiro', icon: MessageSquare, color: '#D4FF00', desc: 'Motivacao e rotina' },
-  { id: 'nutrition', label: 'Alimentacao', icon: UtensilsCrossed, color: '#FF9500', desc: 'Refeicoes e macros' },
-  { id: 'workout', label: 'Treino', icon: Dumbbell, color: '#A855F7', desc: 'Exercicios e carga' },
+  { id: 'companion', label: 'Gymie', icon: MessageSquare, color: '#F5A623', desc: 'Motivação e rotina' },
+  { id: 'nutrition', label: 'Alimentação', icon: UtensilsCrossed, color: '#FB923C', desc: 'Refeições e macros' },
+  { id: 'workout', label: 'Treino', icon: Dumbbell, color: '#A855F7', desc: 'Exercícios e carga' },
 ];
 
 const ICON_MAP = {
@@ -22,19 +26,13 @@ const ICON_MAP = {
   workout: Dumbbell,
   analysis: TrendingUp,
   photo: Camera,
-  droplet: Droplet,
-  utensils: UtensilsCrossed,
-  dumbbell: Dumbbell,
-  target: Target,
-  smile: Smile,
 };
 
-const QUICK_SUGGESTIONS = [
-  'Como estao meus macros?',
-  'Sugestao de refeicao agora',
-  'Analise meu progresso',
-  'Dica pro treino de hoje',
-  'Preciso de motivacao',
+const QUICK_ACTIONS = [
+  { label: 'Meus macros', icon: Flame },
+  { label: 'Sugerir refeição', icon: UtensilsCrossed },
+  { label: 'Dica pro treino', icon: Dumbbell },
+  { label: 'Motivação', icon: Sparkles },
 ];
 
 export default function ChatPage() {
@@ -45,10 +43,8 @@ export default function ChatPage() {
   const [mode, setMode] = useState('companion');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [actionableInsights, setActionableInsights] = useState([]);
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugData, setDebugData] = useState(null);
-  const [showInsights, setShowInsights] = useState(true);
+  const [contextSummary, setContextSummary] = useState(null);
+  const [showModeSelector, setShowModeSelector] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -56,7 +52,7 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchThreads = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [threadsRes, insightsRes] = await Promise.all([
         api.get('/api/chat/threads'),
@@ -64,7 +60,8 @@ export default function ChatPage() {
       ]);
       const t = threadsRes.data.threads || [];
       setThreads(t);
-      setActionableInsights(insightsRes.data.actionable || []);
+      setContextSummary(insightsRes.data.context_summary || null);
+      
       if (t.length > 0) {
         setActiveThread(t[0].id);
       } else {
@@ -76,7 +73,7 @@ export default function ChatPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchThreads(); }, [fetchThreads]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
     if (activeThread) {
@@ -86,15 +83,6 @@ export default function ChatPage() {
       });
     }
   }, [activeThread]);
-
-  // Fetch debug data when debug mode is enabled
-  useEffect(() => {
-    if (debugMode) {
-      api.get('/api/agents/debug').then((res) => {
-        setDebugData(res.data);
-      }).catch(console.error);
-    }
-  }, [debugMode, messages]);
 
   const sendMessage = async (text) => {
     if (!text.trim() || sending || !activeThread) return;
@@ -117,9 +105,9 @@ export default function ChatPage() {
         res.data.ai_message,
       ]);
       
-      // Refresh insights after conversation
+      // Refresh context
       const insightsRes = await api.get('/api/agents/insights');
-      setActionableInsights(insightsRes.data.actionable || []);
+      setContextSummary(insightsRes.data.context_summary || null);
       
       setTimeout(scrollToBottom, 100);
     } catch (err) {
@@ -143,175 +131,111 @@ export default function ChatPage() {
 
   if (loading) return (
     <div className="flex items-center justify-center h-[60vh]">
-      <div className="w-10 h-10 border-2 border-tactical border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-2 border-gymie border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)]">
-      {/* Active Mode Header */}
-      <div className="px-4 pt-3 pb-2 border-b border-border-default bg-bg/95 backdrop-blur">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div 
-              className="w-8 h-8 flex items-center justify-center border"
-              style={{ borderColor: `${currentMode.color}40`, background: `${currentMode.color}10` }}
-            >
-              <ModeIcon size={14} style={{ color: currentMode.color }} strokeWidth={2} />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-ui uppercase tracking-widest text-txt-muted">Modo:</span>
-                <span 
-                  data-testid="current-mode-label"
-                  className="text-xs font-bold uppercase tracking-wider"
-                  style={{ color: currentMode.color }}
-                >
-                  {currentMode.label}
-                </span>
-              </div>
-              <p className="text-[9px] text-txt-muted">{currentMode.desc}</p>
-            </div>
-          </div>
-          
-          {/* Debug Toggle */}
-          <button
-            data-testid="debug-toggle"
-            onClick={() => setDebugMode(!debugMode)}
-            className={`p-1.5 border transition-all ${debugMode ? 'border-tactical bg-tactical/10 text-tactical' : 'border-border-default text-txt-muted hover:border-txt-muted'}`}
-            title="Debug Mode"
-          >
-            <Bug size={14} />
-          </button>
-        </div>
-        
-        {/* Mode Selector */}
-        <div className="flex gap-1.5">
-          {MODES.map((m) => {
-            const Icon = m.icon;
-            const isActive = mode === m.id;
-            return (
-              <button
-                key={m.id}
-                data-testid={`chat-mode-${m.id}`}
-                onClick={() => setMode(m.id)}
-                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-ui uppercase tracking-wider transition-all border"
-                style={isActive 
-                  ? { borderColor: m.color, background: `${m.color}15`, color: m.color } 
-                  : { borderColor: '#27272A', color: '#52525B' }
-                }
-              >
-                <Icon size={10} strokeWidth={isActive ? 2 : 1.5} /> {m.label}
-              </button>
-            );
-          })}
-        </div>
-        
-        {/* Context Note */}
-        <p className="text-[9px] text-txt-muted mt-2 flex items-center gap-1">
-          <Zap size={8} className="text-tactical" />
-          Todos os modos compartilham seu contexto: perfil, refeicoes, treinos e insights.
-        </p>
-      </div>
-
-      {/* Debug Panel */}
-      {debugMode && debugData && (
-        <div data-testid="debug-panel" className="px-4 py-2 bg-surface-hl border-b border-border-default text-[10px] font-mono">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-tactical uppercase tracking-wider font-bold">Debug: Orquestracao</span>
-            <span className="text-txt-muted">{debugData.timestamp?.slice(11, 19)}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-txt-secondary">
-            <div>
-              <span className="text-txt-muted">Status:</span> {debugData.orchestration_status}
-            </div>
-            <div>
-              <span className="text-txt-muted">Fallback:</span> {debugData.fallback_agent}
-            </div>
-            <div>
-              <span className="text-txt-muted">Persona:</span> {debugData.context_loaded?.persona_style}
-            </div>
-            <div>
-              <span className="text-txt-muted">Fatos:</span> {debugData.context_loaded?.memory_facts_count}
-            </div>
-          </div>
-          {debugData.recent_decisions?.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-border-default">
-              <span className="text-txt-muted">Ultimas decisoes:</span>
-              {debugData.recent_decisions.slice(0, 2).map((d, i) => (
-                <div key={i} className="flex items-center gap-2 mt-1">
-                  <span className="text-tactical">[{d.agent_routed}]</span>
-                  <span className="text-txt-secondary truncate">{d.message_preview}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Actionable Insights */}
-      {actionableInsights.length > 0 && messages.length === 0 && (
-        <div className="px-4 py-2 border-b border-border-default bg-surface/50">
-          <button 
-            onClick={() => setShowInsights(!showInsights)}
-            className="flex items-center justify-between w-full text-left"
-          >
+    <div className="flex flex-col h-[calc(100vh-64px)] max-w-md mx-auto">
+      {/* Header with Context Bar */}
+      <div className="px-4 pt-3 pb-2 bg-bg/95 backdrop-blur-lg border-b border-border-subtle sticky top-0 z-10">
+        {/* Context Summary Bar */}
+        {contextSummary && (
+          <div className="flex items-center gap-3 mb-3 py-2 px-3 bg-surface rounded-gymie-sm">
             <div className="flex items-center gap-1.5">
-              <AlertCircle size={12} className="text-tactical" />
-              <span className="text-[10px] font-ui uppercase tracking-wider text-txt-secondary">
-                Insights Acionaveis ({actionableInsights.length})
-              </span>
+              <Droplet size={12} className="text-sky-400" />
+              <span className="text-[11px] font-data text-txt-secondary">{contextSummary.water_pct}%</span>
             </div>
-            {showInsights ? <ChevronUp size={12} className="text-txt-muted" /> : <ChevronDown size={12} className="text-txt-muted" />}
-          </button>
-          
-          {showInsights && (
-            <div data-testid="actionable-insights" className="mt-2 space-y-1.5">
-              {actionableInsights.map((insight, idx) => {
-                const InsightIcon = ICON_MAP[insight.icon] || Target;
-                return (
+            <div className="w-px h-3 bg-border-default" />
+            <div className="flex items-center gap-1.5">
+              <Flame size={12} className="text-gymie" />
+              <span className="text-[11px] font-data text-txt-secondary">{contextSummary.calories_pct}%</span>
+            </div>
+            <div className="w-px h-3 bg-border-default" />
+            <div className="flex items-center gap-1.5">
+              <TrendingUp size={12} className="text-info" />
+              <span className="text-[11px] font-data text-txt-secondary">{contextSummary.protein_pct}%</span>
+            </div>
+            <div className="flex-1" />
+            <div className="flex items-center gap-1">
+              {contextSummary.has_workout && <Dumbbell size={10} className="text-success" />}
+              {contextSummary.has_checkin && <Check size={10} className="text-success" />}
+            </div>
+          </div>
+        )}
+
+        {/* Mode Selector */}
+        <button 
+          onClick={() => setShowModeSelector(!showModeSelector)}
+          className="w-full flex items-center gap-3 p-2 rounded-gymie-sm hover:bg-surface-hl transition-colors"
+        >
+          <div 
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: `${currentMode.color}15` }}
+          >
+            <ModeIcon size={16} style={{ color: currentMode.color }} />
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-sm font-semibold text-txt-primary">Modo: {currentMode.label}</p>
+            <p className="text-[10px] text-txt-muted">{currentMode.desc}</p>
+          </div>
+          <ChevronDown 
+            size={18} 
+            className={`text-txt-muted transition-transform ${showModeSelector ? 'rotate-180' : ''}`} 
+          />
+        </button>
+
+        {/* Mode Options */}
+        {showModeSelector && (
+          <div className="mt-2 p-2 bg-surface rounded-gymie border border-border-subtle animate-scale-in">
+            {MODES.map((m) => {
+              const Icon = m.icon;
+              const isActive = mode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  data-testid={`chat-mode-${m.id}`}
+                  onClick={() => { setMode(m.id); setShowModeSelector(false); }}
+                  className={`w-full flex items-center gap-3 p-3 rounded-gymie-sm transition-all ${
+                    isActive ? 'bg-surface-hl' : 'hover:bg-surface-hl'
+                  }`}
+                >
                   <div 
-                    key={idx}
-                    data-testid={`insight-${insight.type}`}
-                    className="flex items-center gap-2 p-2 border"
-                    style={{ borderColor: `${insight.color}30`, background: `${insight.color}08` }}
+                    className="w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{ backgroundColor: `${m.color}15` }}
                   >
-                    <InsightIcon size={14} style={{ color: insight.color }} strokeWidth={1.5} />
-                    <span className="text-xs text-txt-primary flex-1">{insight.message}</span>
-                    {insight.priority === 'high' && (
-                      <span className="text-[8px] font-bold uppercase px-1 py-0.5 bg-danger/20 text-danger">
-                        Prioridade
-                      </span>
-                    )}
+                    <Icon size={14} style={{ color: m.color }} />
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-medium text-txt-primary">{m.label}</p>
+                    <p className="text-[10px] text-txt-muted">{m.desc}</p>
+                  </div>
+                  {isActive && <Check size={16} style={{ color: m.color }} />}
+                </button>
+              );
+            })}
+            <p className="text-[10px] text-txt-muted text-center mt-2 px-2">
+              Todos os modos compartilham seu contexto
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="text-center py-6">
+          <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
             <div 
-              className="w-16 h-16 mx-auto mb-4 border-2 flex items-center justify-center"
-              style={{ borderColor: `${currentMode.color}30`, background: `${currentMode.color}08` }}
+              className="w-20 h-20 rounded-full flex items-center justify-center mb-4 animate-pulse-glow"
+              style={{ backgroundColor: `${currentMode.color}10` }}
             >
-              <ModeIcon size={28} style={{ color: currentMode.color }} strokeWidth={1.5} />
+              <ModeIcon size={32} style={{ color: currentMode.color }} />
             </div>
-            <h3 className="text-lg font-heading uppercase tracking-tight text-txt-primary mb-1">
-              Modo {currentMode.label}
+            <h3 className="text-lg font-semibold text-txt-primary mb-1">
+              Olá! Sou o Gymie
             </h3>
-            <p className="text-xs text-txt-muted max-w-xs mx-auto">
-              {mode === 'companion' && 'Converse sobre sua rotina, receba motivacao e acompanhe seu dia.'}
-              {mode === 'nutrition' && 'Tire duvidas sobre refeicoes, macros e planejamento alimentar.'}
-              {mode === 'workout' && 'Pergunte sobre treinos, progressao de carga e recuperacao.'}
-            </p>
-            <p className="text-[10px] text-txt-muted mt-3 flex items-center justify-center gap-1">
-              <Zap size={10} className="text-tactical" />
-              Contexto compartilhado entre todos os modos
+            <p className="text-sm text-txt-muted text-center max-w-[280px]">
+              Seu companheiro de rotina. Pergunte sobre treino, alimentação ou peça motivação.
             </p>
           </div>
         )}
@@ -324,25 +248,21 @@ export default function ChatPage() {
           return (
             <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}>
               <div className="max-w-[85%]">
-                {/* Mode indicator for AI messages */}
+                {/* AI badge */}
                 {!isUser && (
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <AgentIcon size={10} style={{ color: agentColor }} strokeWidth={2} />
-                    <span className="text-[9px] font-ui uppercase tracking-wider text-txt-muted">
-                      Modo: <span style={{ color: agentColor }}>{msg.agent_name || currentMode.label}</span>
+                  <div className="flex items-center gap-1.5 mb-1.5 ml-1">
+                    <AgentIcon size={10} style={{ color: agentColor }} />
+                    <span className="text-[10px] text-txt-muted">
+                      {msg.agent_name || 'Gymie'}
                     </span>
                   </div>
                 )}
-                <div
-                  data-testid={`chat-msg-${msg.role}`}
-                  className={`px-4 py-3 ${isUser
-                    ? 'bg-tactical/15 border border-tactical/30 text-txt-primary'
-                    : 'bg-surface border text-txt-primary'
-                  }`}
-                  style={!isUser ? { borderColor: `${agentColor}25` } : {}}
-                >
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-                  <p className="font-data text-[10px] text-txt-muted mt-2">
+                <div className={isUser ? 'msg-user' : 'msg-ai'} style={{ padding: '12px 16px' }}>
+                  <p 
+                    className="text-sm leading-relaxed text-txt-primary" 
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} 
+                  />
+                  <p className="text-[10px] text-txt-muted mt-2 font-data">
                     {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -353,35 +273,35 @@ export default function ChatPage() {
 
         {sending && (
           <div className="flex justify-start animate-fade-in">
-            <div className="bg-surface border border-border-default px-4 py-3 flex items-center gap-2">
+            <div className="msg-ai px-4 py-3 flex items-center gap-2">
               <Loader2 size={14} className="animate-spin" style={{ color: currentMode.color }} />
-              <span className="text-xs text-txt-muted flex items-center gap-1">
-                <span style={{ color: currentMode.color }}>{currentMode.label}</span> processando...
-              </span>
+              <span className="text-xs text-txt-muted">Pensando...</span>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Suggestions */}
+      {/* Quick Actions */}
       {messages.length === 0 && (
-        <div className="px-4 pb-2 flex gap-2 overflow-x-auto">
-          {QUICK_SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              data-testid="quick-suggestion"
-              onClick={() => sendMessage(s)}
-              className="whitespace-nowrap px-3 py-1.5 text-xs border border-border-default text-txt-secondary hover:border-tactical hover:text-tactical transition-all"
-            >
-              {s}
-            </button>
-          ))}
+        <div className="px-4 pb-2">
+          <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+            {QUICK_ACTIONS.map((a, idx) => (
+              <button
+                key={idx}
+                onClick={() => sendMessage(a.label)}
+                className="gymie-chip whitespace-nowrap touch-feedback"
+              >
+                <a.icon size={12} className="text-gymie" />
+                <span className="text-txt-secondary">{a.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-border-default bg-bg/95 backdrop-blur">
+      <div className="px-4 py-3 bg-bg/95 backdrop-blur-lg border-t border-border-subtle pb-safe">
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
@@ -390,16 +310,15 @@ export default function ChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder={`Pergunte ao modo ${currentMode.label}...`}
-            className="flex-1 bg-surface border border-border-default text-txt-primary placeholder:text-txt-muted focus:border-tactical px-4 py-2.5 outline-none resize-none text-sm max-h-24"
-            style={{ minHeight: '42px' }}
+            placeholder="Digite sua mensagem..."
+            className="flex-1 gymie-input resize-none text-sm"
+            style={{ minHeight: '44px', maxHeight: '120px' }}
           />
           <button
             data-testid="chat-send"
             onClick={() => sendMessage(input)}
             disabled={!input.trim() || sending}
-            className="p-2.5 hover:opacity-80 active:scale-95 transition-all disabled:opacity-30"
-            style={{ backgroundColor: currentMode.color, color: '#000' }}
+            className="gymie-btn-primary p-3 disabled:opacity-40"
           >
             <Send size={18} />
           </button>
