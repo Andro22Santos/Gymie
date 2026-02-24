@@ -1,13 +1,13 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Target, MessageSquare, UtensilsCrossed, Droplet, Settings } from 'lucide-react';
+import { Target, MessageSquare, UtensilsCrossed, Dumbbell, TrendingUp } from 'lucide-react';
 
 const tabs = [
   { path: '/', icon: Target, label: 'Hoje' },
   { path: '/chat', icon: MessageSquare, label: 'Chat' },
   { path: '/meals', icon: UtensilsCrossed, label: 'Refeicoes' },
-  { path: '/water', icon: Droplet, label: 'Agua' },
-  { path: '/settings', icon: Settings, label: 'Config' },
+  { path: '/workout', icon: Dumbbell, label: 'Treino' },
+  { path: '/progress', icon: TrendingUp, label: 'Progresso' },
 ];
 
 export default function BottomNav() {

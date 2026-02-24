@@ -9,6 +9,8 @@ import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import MealsPage from './pages/MealsPage';
 import WaterPage from './pages/WaterPage';
+import WorkoutPage from './pages/WorkoutPage';
+import ProgressPage from './pages/ProgressPage';
 import SettingsPage from './pages/SettingsPage';
 import BottomNav from './components/BottomNav';
 
