@@ -2,7 +2,7 @@ import requests
 import sys
 from datetime import datetime
 
-class WorkoutAPITester:
+class ShapePhase3Tester:
     def __init__(self, base_url="https://535b5e70-f291-4d00-b430-59f3b48d9b6b.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
