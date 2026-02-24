@@ -1168,11 +1168,127 @@ async def get_available_agents():
 
 @app.get("/api/agents/insights")
 async def get_agent_insights(user=Depends(get_current_user)):
+    """
+    Returns agent insights + actionable insights based on current day state.
+    Actionable insights are practical, context-aware suggestions.
+    """
     db = get_db()
-    insights = await db.agent_insights.find(
-        {"user_id": user["user_id"]}, {"_id": 0}
-    ).sort("created_at", -1).to_list(30)
-    return {"insights": insights}
+    uid = user["user_id"]
+    date = today_str()
+    
+    # Get raw agent insights
+    raw_insights = await db.agent_insights.find(
+        {"user_id": uid}, {"_id": 0}
+    ).sort("created_at", -1).to_list(15)
+    
+    # Build actionable insights from current state
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+    meals = await db.meals.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(50)
+    water_logs = await db.water_logs.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(50)
+    reminders = await db.reminders.find({"user_id": uid, "date": date, "status": "pending"}, {"_id": 0}).to_list(10)
+    sessions = await db.workout_sessions.find({"user_id": uid, "date": date}, {"_id": 0}).to_list(5)
+    checkin = await db.daily_checkins.find_one({"user_id": uid, "date": date}, {"_id": 0})
+    
+    actionable = []
+    now_hour = datetime.now(timezone.utc).hour
+    
+    # Water check
+    total_water = sum(w.get("amount_ml", 0) for w in water_logs)
+    water_goal = profile.get("water_goal_ml", 2500) if profile else 2500
+    water_pct = (total_water / water_goal * 100) if water_goal > 0 else 0
+    if water_pct < 40 and now_hour >= 12:
+        actionable.append({
+            "type": "water",
+            "priority": "high",
+            "icon": "droplet",
+            "message": f"Agua em {int(water_pct)}% da meta. Beba mais agua!",
+            "action": "add_water",
+            "color": "#00F0FF",
+        })
+    
+    # Calories/protein check
+    total_cal = sum(m.get("calories", 0) for m in meals)
+    total_protein = sum(m.get("protein", 0) for m in meals)
+    cal_target = profile.get("calorie_target", 2000) if profile else 2000
+    prot_target = profile.get("protein_target", 150) if profile else 150
+    
+    if now_hour >= 18 and total_protein < prot_target * 0.6:
+        deficit = prot_target - total_protein
+        actionable.append({
+            "type": "nutrition",
+            "priority": "high",
+            "icon": "utensils",
+            "message": f"Faltam {int(deficit)}g de proteina hoje. Capriche no jantar!",
+            "action": "add_meal",
+            "color": "#FF9500",
+        })
+    elif now_hour >= 14 and total_cal < cal_target * 0.4:
+        actionable.append({
+            "type": "nutrition",
+            "priority": "medium",
+            "icon": "utensils",
+            "message": f"Poucas calorias ate agora ({int(total_cal)}kcal). Nao pule refeicoes!",
+            "action": "add_meal",
+            "color": "#FF9500",
+        })
+    
+    # Workout check
+    training_days = profile.get("training_days", []) if profile else []
+    weekday = datetime.now(timezone.utc).strftime("%A").lower()
+    weekday_pt = {"monday": "segunda", "tuesday": "terca", "wednesday": "quarta", "thursday": "quinta", "friday": "sexta", "saturday": "sabado", "sunday": "domingo"}.get(weekday, "")
+    
+    has_workout_today = any(s.get("status") in ["active", "completed"] for s in sessions)
+    if weekday_pt in training_days and not has_workout_today and now_hour >= 10:
+        actionable.append({
+            "type": "workout",
+            "priority": "medium",
+            "icon": "dumbbell",
+            "message": "Hoje e dia de treino! Ja iniciou?",
+            "action": "start_workout",
+            "color": "#A855F7",
+        })
+    
+    # Pending reminders
+    pending_count = len(reminders)
+    if pending_count > 0:
+        next_reminder = reminders[0] if reminders else None
+        if next_reminder:
+            actionable.append({
+                "type": "reminder",
+                "priority": "low",
+                "icon": "target",
+                "message": f"Proxima missao: {next_reminder.get('label', 'Lembrete')} as {next_reminder.get('scheduled_at', '?')}",
+                "action": "view_reminders",
+                "color": "#D4FF00",
+            })
+    
+    # Check-in reminder
+    if not checkin and now_hour >= 20:
+        actionable.append({
+            "type": "checkin",
+            "priority": "low",
+            "icon": "smile",
+            "message": "Faca seu check-in noturno: sono, energia, humor.",
+            "action": "do_checkin",
+            "color": "#D4FF00",
+        })
+    
+    # Sort by priority
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    actionable.sort(key=lambda x: priority_order.get(x.get("priority", "low"), 2))
+    
+    return {
+        "raw_insights": raw_insights,
+        "actionable": actionable[:5],  # Max 5 actionable insights
+        "context_summary": {
+            "water_pct": round(water_pct),
+            "calories_pct": round((total_cal / cal_target * 100) if cal_target > 0 else 0),
+            "protein_pct": round((total_protein / prot_target * 100) if prot_target > 0 else 0),
+            "meals_count": len(meals),
+            "has_checkin": checkin is not None,
+            "has_workout": has_workout_today,
+        }
+    }
 
 
 class MealAnalyzeRequest(BaseModel):
