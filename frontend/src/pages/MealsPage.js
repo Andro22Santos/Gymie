@@ -15,7 +15,7 @@ export default function MealsPage() {
   const [meals, setMeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '' });
+  const [form, setForm] = useState({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '', photo_url: '' });
 
   const fetchMeals = useCallback(async () => {
     try {
