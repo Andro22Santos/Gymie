@@ -52,7 +52,9 @@ async def lifespan(app: FastAPI):
     app.state.mongo_client.close()
 
 
-app = FastAPI(title="Shape Inexplicavel API", lifespan=lifespan)
+app = FastAPI(title="Gymie API", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
