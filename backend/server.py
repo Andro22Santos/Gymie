@@ -1177,10 +1177,32 @@ async def get_agent_insights(user=Depends(get_current_user)):
 
 class MealAnalyzeRequest(BaseModel):
     description: str
+    photo_base64: Optional[str] = None
 
 @app.post("/api/meals/analyze")
 async def analyze_meal(req: MealAnalyzeRequest, user=Depends(get_current_user)):
-    """Photo/text analysis of a meal - estimates macros using AI."""
+    """
+    Photo/text analysis of a meal - estimates macros using AI.
+    
+    Standardized Response Contract:
+    {
+        "success": bool,
+        "analysis_text": str,         # Human-readable analysis
+        "estimated_macros": {
+            "calories": int,
+            "protein": int,
+            "carbs": int,
+            "fat": int,
+            "fiber": int,             # Optional
+            "description": str        # Cleaned description
+        },
+        "confidence": str,            # "high" | "medium" | "low"
+        "suggestions": [str],         # Actionable tips
+        "agent_name": str,
+        "agent_code": str,
+        "analyzed_at": str            # ISO timestamp
+    }
+    """
     try:
         db = get_db()
         profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
@@ -1191,14 +1213,40 @@ async def analyze_meal(req: MealAnalyzeRequest, user=Depends(get_current_user)):
             description=req.description,
             persona_style=persona_style,
         )
-        return result
+        
+        # Standardized response
+        estimated = result.get("estimated_macros", {})
+        return {
+            "success": True,
+            "analysis_text": result.get("analysis_text", "Analise concluida."),
+            "estimated_macros": {
+                "calories": estimated.get("calories", 0),
+                "protein": estimated.get("protein", 0),
+                "carbs": estimated.get("carbs", 0),
+                "fat": estimated.get("fat", 0),
+                "fiber": estimated.get("fiber", 0),
+                "description": estimated.get("description", req.description),
+            },
+            "confidence": "medium",  # Can be enhanced with AI confidence scoring
+            "suggestions": [],
+            "agent_name": result.get("agent_name", "Foto"),
+            "agent_code": result.get("agent_code", "FOTO"),
+            "analyzed_at": datetime.now(timezone.utc).isoformat(),
+        }
     except Exception as e:
         print(f"Meal analysis error: {e}")
         return {
+            "success": False,
             "analysis_text": "Nao foi possivel analisar a refeicao automaticamente.",
-            "estimated_macros": {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "description": req.description},
+            "estimated_macros": {
+                "calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0,
+                "description": req.description
+            },
+            "confidence": "low",
+            "suggestions": ["Tente descrever a refeicao com mais detalhes."],
             "agent_name": "Foto",
             "agent_code": "FOTO",
+            "analyzed_at": datetime.now(timezone.utc).isoformat(),
         }
 
 
