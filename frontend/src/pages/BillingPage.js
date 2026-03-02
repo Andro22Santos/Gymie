@@ -37,6 +37,7 @@ export default function BillingPage() {
   const [plans, setPlans] = useState(FALLBACK_PLANS);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState('');
+  const [portalLoading, setPortalLoading] = useState(false);
 
   const currentPlan = normalizePlan(user?.profile?.subscription_plan);
   const currentStatus = user?.profile?.subscription_status || 'inactive';
@@ -59,6 +60,18 @@ export default function BillingPage() {
   useEffect(() => {
     fetchPlans();
   }, [fetchPlans]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkout = params.get('checkout');
+    if (!checkout) return;
+    if (checkout === 'success') {
+      toast('Pagamento concluido. Atualizando assinatura...', 'success');
+      refreshUser().catch(() => {});
+    } else if (checkout === 'cancel') {
+      toast('Checkout cancelado.', 'info');
+    }
+  }, [refreshUser, toast]);
 
   const startCheckout = async (planId) => {
     if (!planId || planId === 'free') return;
@@ -89,6 +102,24 @@ export default function BillingPage() {
     }
   };
 
+  const openPortal = async () => {
+    setPortalLoading(true);
+    try {
+      const res = await api.get('/api/billing/portal');
+      const portalUrl = res.data?.portal_url;
+      if (!portalUrl) {
+        toast('Portal de assinatura indisponivel.', 'error');
+        return;
+      }
+      window.location.href = portalUrl;
+    } catch (err) {
+      console.error(err);
+      toast('Nao foi possivel abrir o portal agora.', 'error');
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
   return (
     <div className="px-4 pt-5 pb-24 max-w-md mx-auto">
       <div className="flex items-center justify-between mb-5">
@@ -110,9 +141,14 @@ export default function BillingPage() {
         <p className="text-xs uppercase tracking-wider text-txt-muted">Plano atual</p>
         <p className="text-lg font-semibold text-txt-primary mt-1">{currentPlan.toUpperCase()}</p>
         <p className="text-xs text-txt-muted mt-1">Status: {currentStatus}</p>
-        <button type="button" onClick={refreshBilling} className="text-xs text-gymie mt-2 hover:opacity-80">
-          Atualizar status
-        </button>
+        <div className="flex items-center gap-3 mt-2">
+          <button type="button" onClick={refreshBilling} className="text-xs text-gymie hover:opacity-80">
+            Atualizar status
+          </button>
+          <button type="button" onClick={openPortal} className="text-xs text-gymie hover:opacity-80" disabled={portalLoading}>
+            {portalLoading ? 'Abrindo portal...' : 'Gerenciar no portal'}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">

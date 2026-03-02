@@ -45,6 +45,19 @@ JWT_SECRET=...
 EMERGENT_LLM_KEY=...
 APP_ENV=production
 CORS_ORIGINS=https://SEU_FRONTEND.emergent.sh
+FRONTEND_BASE_URL=https://SEU_FRONTEND.emergent.sh
+
+# Stripe (checkout real + portal + webhook)
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_PRICE_ID_PRO=price_...
+STRIPE_PRICE_ID_ELITE=price_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Fallback opcional com Payment Links/URL pronta
+STRIPE_CHECKOUT_URL_PRO=https://buy.stripe.com/...
+STRIPE_CHECKOUT_URL_ELITE=https://buy.stripe.com/...
+STRIPE_PORTAL_URL=https://billing.stripe.com/p/login/...
 ```
 
 Observação: `server.py` já possui parser de CORS por env (`parse_cors_origins`).
@@ -61,6 +74,10 @@ Observação: `server.py` já possui parser de CORS por env (`parse_cors_origins
 - `POST /api/meals`
 - `GET /api/progress/summary`
 - `GET/POST /api/memory/facts`
+- `GET /api/billing/plans`
+- `POST /api/billing/checkout`
+- `GET /api/billing/portal`
+- `POST /api/billing/webhook/stripe` (sem auth, validado por assinatura Stripe)
 
 5. Testar fluxo funcional fim a fim
 - Login/registro e onboarding.
@@ -79,6 +96,14 @@ Observação: `server.py` já possui parser de CORS por env (`parse_cors_origins
 - Evitar regressão nas melhorias de UI/UX já aplicadas.
 - Confirmar disponibilidade do modelo configurado em `backend/agents.py` e ajustar se necessário.
 - Confirmar que a análise de refeição com foto está respondendo de forma consistente em produção.
+- Em produção, configurar webhook Stripe para:
+  - `checkout.session.completed`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `invoice.paid`
+  - `invoice.payment_failed`
+  E apontar para `POST /api/billing/webhook/stripe`.
 
 ## Pendências opcionais (não bloqueantes)
 - Persistir no backend o contexto `.md` do perfil (hoje pode ficar local em alguns fluxos).

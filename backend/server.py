@@ -15,6 +15,10 @@ import bcrypt
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+try:
+    import stripe
+except ImportError:
+    stripe = None
 
 from ai_service import generate_ai_response, generate_reminder_message
 from agents import orchestrate_response, analyze_meal_photo, get_agents_info, classify_intent
@@ -34,6 +38,15 @@ APP_ENV = (os.environ.get("APP_ENV") or "development").strip().lower()
 STRIPE_CHECKOUT_URL_PRO = os.environ.get("STRIPE_CHECKOUT_URL_PRO", "")
 STRIPE_CHECKOUT_URL_ELITE = os.environ.get("STRIPE_CHECKOUT_URL_ELITE", "")
 STRIPE_PORTAL_URL = os.environ.get("STRIPE_PORTAL_URL", "")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_PRICE_ID_PRO = os.environ.get("STRIPE_PRICE_ID_PRO", "")
+STRIPE_PRICE_ID_ELITE = os.environ.get("STRIPE_PRICE_ID_ELITE", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000").rstrip("/")
+
+if stripe and STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
 
 def parse_cors_origins() -> List[str]:
@@ -228,6 +241,47 @@ def with_profile_defaults(profile: Optional[dict]) -> dict:
 def has_feature_access(profile: Optional[dict], feature: str) -> bool:
     plan = normalize_plan((profile or {}).get("subscription_plan"))
     return feature in PLAN_CATALOG[plan]["features"]
+
+
+def stripe_checkout_fallback_url(plan: str, user_id: str) -> str:
+    checkout_url = STRIPE_CHECKOUT_URL_PRO if plan == "pro" else STRIPE_CHECKOUT_URL_ELITE
+    if not checkout_url:
+        return ""
+    uid = quote_plus(user_id)
+    separator = "&" if "?" in checkout_url else "?"
+    return f"{checkout_url}{separator}client_reference_id={uid}&plan={plan}"
+
+
+def stripe_price_id_for_plan(plan: str) -> str:
+    if plan == "pro":
+        return STRIPE_PRICE_ID_PRO
+    if plan == "elite":
+        return STRIPE_PRICE_ID_ELITE
+    return ""
+
+
+def plan_for_stripe_price_id(price_id: Optional[str]) -> Optional[str]:
+    if not price_id:
+        return None
+    if price_id == STRIPE_PRICE_ID_PRO:
+        return "pro"
+    if price_id == STRIPE_PRICE_ID_ELITE:
+        return "elite"
+    return None
+
+
+def status_from_stripe_subscription(stripe_status: Optional[str]) -> str:
+    mapped = {
+        "trialing": "trialing",
+        "active": "active",
+        "past_due": "past_due",
+        "canceled": "canceled",
+        "unpaid": "past_due",
+        "incomplete": "inactive",
+        "incomplete_expired": "inactive",
+        "paused": "inactive",
+    }
+    return mapped.get((stripe_status or "").lower(), "inactive")
 
 
 # ── Pydantic Models ──────────────────────────────────────────
@@ -1153,21 +1207,55 @@ async def get_billing_status(user=Depends(get_current_user)):
     }
 
 
+async def apply_subscription_update(
+    db,
+    *,
+    user_id: Optional[str] = None,
+    stripe_customer_id: Optional[str] = None,
+    plan: Optional[str] = None,
+    status: Optional[str] = None,
+    stripe_subscription_id: Optional[str] = None,
+    current_period_end: Optional[int] = None,
+):
+    if not user_id and not stripe_customer_id:
+        return None
+    query = {"user_id": user_id} if user_id else {"stripe_customer_id": stripe_customer_id}
+    profile = await db.user_profiles.find_one(query, {"_id": 0})
+    if not profile:
+        return None
+
+    resolved_plan = normalize_plan(plan or profile.get("billing_pending_plan") or profile.get("subscription_plan"))
+    resolved_status = normalize_subscription_status(status or profile.get("subscription_status"))
+    update_data = {
+        "subscription_plan": resolved_plan,
+        "subscription_status": resolved_status,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if stripe_customer_id:
+        update_data["stripe_customer_id"] = stripe_customer_id
+    if stripe_subscription_id:
+        update_data["stripe_subscription_id"] = stripe_subscription_id
+    if current_period_end:
+        update_data["subscription_period_end"] = datetime.fromtimestamp(
+            int(current_period_end), tz=timezone.utc
+        ).isoformat()
+    update_data["billing_pending_plan"] = None
+
+    await db.user_profiles.update_one({"user_id": profile["user_id"]}, {"$set": update_data}, upsert=True)
+    return profile["user_id"]
+
+
 @app.post("/api/billing/checkout")
 async def create_billing_checkout(req: BillingCheckoutCreate, user=Depends(get_current_user)):
     plan = normalize_plan(req.plan)
     if plan not in {"pro", "elite"}:
         raise HTTPException(status_code=400, detail="Plano invalido para checkout")
 
-    checkout_url = STRIPE_CHECKOUT_URL_PRO if plan == "pro" else STRIPE_CHECKOUT_URL_ELITE
-    if not checkout_url:
-        raise HTTPException(status_code=400, detail="Checkout Stripe nao configurado no servidor")
-
-    uid = quote_plus(user["user_id"])
-    separator = "&" if "?" in checkout_url else "?"
-    full_checkout_url = f"{checkout_url}{separator}client_reference_id={uid}&plan={plan}"
-
     db = get_db()
+    user_doc = await db.users.find_one({"_id": user["user_id"]}, {"_id": 1, "email": 1})
+    profile = with_profile_defaults(await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}))
+
     await db.user_profiles.update_one(
         {"user_id": user["user_id"]},
         {"$set": {
@@ -1177,16 +1265,200 @@ async def create_billing_checkout(req: BillingCheckoutCreate, user=Depends(get_c
         upsert=True,
     )
 
-    return {"checkout_url": full_checkout_url, "plan": plan}
+    # Preferred path: real Stripe Checkout Session.
+    if stripe and STRIPE_SECRET_KEY:
+        price_id = stripe_price_id_for_plan(plan)
+        if not price_id:
+            fallback = stripe_checkout_fallback_url(plan, user["user_id"])
+            if fallback:
+                return {"checkout_url": fallback, "plan": plan, "mode": "fallback_url"}
+            raise HTTPException(status_code=400, detail=f"Price ID do plano {plan} nao configurado")
+
+        try:
+            session_payload = {
+                "mode": "subscription",
+                "line_items": [{"price": price_id, "quantity": 1}],
+                "client_reference_id": user["user_id"],
+                "success_url": f"{FRONTEND_BASE_URL}/billing?checkout=success",
+                "cancel_url": f"{FRONTEND_BASE_URL}/billing?checkout=cancel",
+                "allow_promotion_codes": True,
+                "metadata": {"user_id": user["user_id"], "plan": plan},
+                "subscription_data": {"metadata": {"user_id": user["user_id"], "plan": plan}},
+            }
+
+            if profile.get("stripe_customer_id"):
+                session_payload["customer"] = profile.get("stripe_customer_id")
+            elif user_doc and user_doc.get("email"):
+                session_payload["customer_email"] = user_doc.get("email")
+            else:
+                raise HTTPException(status_code=400, detail="Usuario sem email valido para checkout Stripe")
+
+            session = stripe.checkout.Session.create(**session_payload)
+            checkout_url = session.get("url")
+            if not checkout_url:
+                raise HTTPException(status_code=500, detail="Stripe nao retornou URL de checkout")
+
+            stripe_customer_id = session.get("customer")
+            if stripe_customer_id and not profile.get("stripe_customer_id"):
+                await db.user_profiles.update_one(
+                    {"user_id": user["user_id"]},
+                    {"$set": {"stripe_customer_id": stripe_customer_id}},
+                    upsert=True,
+                )
+
+            return {"checkout_url": checkout_url, "plan": plan, "mode": "stripe_session"}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Falha ao criar checkout Stripe: {exc}")
+
+    # Fallback path: pre-built Stripe link URL if provided.
+    fallback = stripe_checkout_fallback_url(plan, user["user_id"])
+    if fallback:
+        return {"checkout_url": fallback, "plan": plan, "mode": "fallback_url"}
+
+    raise HTTPException(
+        status_code=400,
+        detail="Stripe nao configurado. Defina STRIPE_SECRET_KEY + price IDs ou URLs de checkout.",
+    )
 
 
 @app.get("/api/billing/portal")
 async def get_billing_portal(user=Depends(get_current_user)):
-    if not STRIPE_PORTAL_URL:
-        raise HTTPException(status_code=400, detail="Portal Stripe nao configurado no servidor")
-    uid = quote_plus(user["user_id"])
-    separator = "&" if "?" in STRIPE_PORTAL_URL else "?"
-    return {"portal_url": f"{STRIPE_PORTAL_URL}{separator}client_reference_id={uid}"}
+    db = get_db()
+    profile = with_profile_defaults(await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}))
+    stripe_customer_id = profile.get("stripe_customer_id")
+
+    if stripe and STRIPE_SECRET_KEY and stripe_customer_id:
+        try:
+            session = stripe.billing_portal.Session.create(
+                customer=stripe_customer_id,
+                return_url=f"{FRONTEND_BASE_URL}/billing",
+            )
+            return {"portal_url": session.get("url"), "mode": "stripe_portal"}
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Falha ao criar portal Stripe: {exc}")
+
+    if STRIPE_PORTAL_URL:
+        uid = quote_plus(user["user_id"])
+        separator = "&" if "?" in STRIPE_PORTAL_URL else "?"
+        return {"portal_url": f"{STRIPE_PORTAL_URL}{separator}client_reference_id={uid}", "mode": "fallback_url"}
+
+    raise HTTPException(
+        status_code=400,
+        detail="Portal Stripe nao configurado. Exige stripe_customer_id ou STRIPE_PORTAL_URL.",
+    )
+
+
+@app.post("/api/billing/webhook/stripe")
+async def stripe_webhook(request: Request, stripe_signature: Optional[str] = Header(default=None, alias="stripe-signature")):
+    if not stripe or not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe nao habilitado no backend")
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="STRIPE_WEBHOOK_SECRET nao configurado")
+    if not stripe_signature:
+        raise HTTPException(status_code=400, detail="Assinatura Stripe ausente")
+
+    payload = await request.body()
+    try:
+        event = stripe.Webhook.construct_event(payload, stripe_signature, STRIPE_WEBHOOK_SECRET)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Webhook invalido: {exc}")
+
+    db = get_db()
+    event_type = event.get("type")
+    data = (event.get("data") or {}).get("object") or {}
+
+    try:
+        if event_type == "checkout.session.completed":
+            if data.get("mode") == "subscription":
+                user_id = data.get("client_reference_id") or (data.get("metadata") or {}).get("user_id")
+                plan = normalize_plan((data.get("metadata") or {}).get("plan"))
+                customer_id = data.get("customer")
+                subscription_id = data.get("subscription")
+
+                status = "active"
+                price_id = None
+                current_period_end = None
+
+                if subscription_id:
+                    try:
+                        sub = stripe.Subscription.retrieve(subscription_id)
+                        status = status_from_stripe_subscription(sub.get("status"))
+                        current_period_end = sub.get("current_period_end")
+                        items = ((sub.get("items") or {}).get("data") or [])
+                        if items:
+                            price_id = ((items[0].get("price") or {}).get("id"))
+                    except Exception:
+                        # Do not fail webhook processing if enrichment fails.
+                        pass
+
+                if price_id:
+                    resolved = plan_for_stripe_price_id(price_id)
+                    if resolved:
+                        plan = resolved
+
+                await apply_subscription_update(
+                    db,
+                    user_id=user_id,
+                    plan=plan,
+                    status=status,
+                    stripe_subscription_id=subscription_id,
+                    stripe_customer_id=customer_id,
+                    current_period_end=current_period_end,
+                )
+
+        elif event_type in {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"}:
+            customer_id = data.get("customer")
+            stripe_status = data.get("status")
+            status = status_from_stripe_subscription(stripe_status)
+            subscription_id = data.get("id")
+            metadata = data.get("metadata") or {}
+            user_id = metadata.get("user_id")
+            plan = normalize_plan(metadata.get("plan"))
+            current_period_end = data.get("current_period_end")
+
+            items = ((data.get("items") or {}).get("data") or [])
+            if items:
+                price_id = ((items[0].get("price") or {}).get("id"))
+                plan_from_price = plan_for_stripe_price_id(price_id)
+                if plan_from_price:
+                    plan = plan_from_price
+
+            if event_type == "customer.subscription.deleted":
+                status = "canceled"
+                plan = "free"
+
+            await apply_subscription_update(
+                db,
+                user_id=user_id,
+                plan=plan,
+                status=status,
+                stripe_subscription_id=subscription_id,
+                stripe_customer_id=customer_id,
+                current_period_end=current_period_end,
+            )
+
+        elif event_type == "invoice.payment_failed":
+            customer_id = data.get("customer")
+            await apply_subscription_update(
+                db,
+                stripe_customer_id=customer_id,
+                status="past_due",
+            )
+
+        elif event_type == "invoice.paid":
+            customer_id = data.get("customer")
+            await apply_subscription_update(
+                db,
+                stripe_customer_id=customer_id,
+                status="active",
+            )
+    except Exception as exc:
+        # Keep webhook idempotent/retriable: return 200 with error payload for observability.
+        return {"received": True, "processed": False, "error": str(exc), "event_type": event_type}
+
+    return {"received": True, "processed": True, "event_type": event_type}
 
 
 @app.get("/api/workout-plans")
