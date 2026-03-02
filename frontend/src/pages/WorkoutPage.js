@@ -4,7 +4,9 @@ import { Dumbbell, Plus, Play, Check, ChevronDown, ChevronUp, X, Clock, Trash2, 
 import exercises from '../data/exercises';
 import exercisePack1000 from '../data/exercisePack1000';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import Confetti from '../components/Confetti';
+import { hasFeature } from '../utils/subscription';
 
 const LIBRARY_PAGE_SIZE = 80;
 
@@ -64,33 +66,33 @@ const mergedExerciseCatalog = Object.values(mergedExerciseLookup).sort((a, b) =>
   return (a.name || '').localeCompare(b.name || '', 'pt-BR');
 });
 
-// Busca dados do exercÃ­cio pelo nome (com fuzzy matching)
+// Busca dados do exercicio pelo nome (com fuzzy matching)
 function findExercise(name) {
   if (!name) return null;
   const key = normalizeExerciseKey(name);
   if (mergedExerciseLookup[key]) return mergedExerciseLookup[key];
-  // Fuzzy: "Supino Reto" â†’ "Supino Reto com Barra", "Agachamento Livre com Barra" â†’ "Agachamento Livre"
+  // Fuzzy: "Supino Reto" -> "Supino Reto com Barra", "Agachamento Livre com Barra" -> "Agachamento Livre"
   const allKeys = Object.keys(mergedExerciseLookup);
   const match = allKeys.find(k => k.startsWith(key) || key.startsWith(k + ' '));
   return match ? mergedExerciseLookup[match] : null;
 }
 
-// Templates de treino ABC gerados por "IA" (mock)
+// Templates de treino ABC gerados por IA (fallback)
 const AI_TEMPLATES = {
   'Ganho de massa': [
     {
-      name: 'Treino A â€” Peito + TrÃ­ceps',
+      name: 'Treino A - Peito + Triceps',
       plan_type: 'A',
       exercises: [
         { name: 'Supino Reto com Barra', sets: 4, reps: '8-10', weight_kg: 60, rest_seconds: 90 },
         { name: 'Supino Inclinado com Halteres', sets: 3, reps: '10-12', weight_kg: 22, rest_seconds: 75 },
         { name: 'Crucifixo Inclinado com Halteres', sets: 3, reps: '12', weight_kg: 14, rest_seconds: 60 },
-        { name: 'TrÃ­ceps Testa com Barra', sets: 3, reps: '12', weight_kg: 20, rest_seconds: 60 },
+        { name: 'Triceps Testa com Barra', sets: 3, reps: '12', weight_kg: 20, rest_seconds: 60 },
         { name: 'Mergulho em Paralelas', sets: 3, reps: '10', weight_kg: 0, rest_seconds: 60 },
       ],
     },
     {
-      name: 'Treino B â€” Costas + BÃ­ceps',
+      name: 'Treino B - Costas + Biceps',
       plan_type: 'B',
       exercises: [
         { name: 'Barra Fixa Supinada', sets: 4, reps: '8', weight_kg: 0, rest_seconds: 90 },
@@ -100,31 +102,31 @@ const AI_TEMPLATES = {
       ],
     },
     {
-      name: 'Treino C â€” Pernas + Ombros',
+      name: 'Treino C - Pernas + Ombros',
       plan_type: 'C',
       exercises: [
         { name: 'Agachamento Livre com Barra', sets: 4, reps: '8-10', weight_kg: 80, rest_seconds: 120 },
         { name: 'Leg Press 45', sets: 3, reps: '12', weight_kg: 160, rest_seconds: 90 },
         { name: 'Desenvolvimento com Barra', sets: 3, reps: '10', weight_kg: 40, rest_seconds: 75 },
-        { name: 'ElevaÃ§Ã£o Lateral com Halteres', sets: 3, reps: '15', weight_kg: 10, rest_seconds: 60 },
+        { name: 'Elevacao Lateral com Halteres', sets: 3, reps: '15', weight_kg: 10, rest_seconds: 60 },
       ],
     },
   ],
-  'Emagrecimento': [
+  Emagrecimento: [
     {
-      name: 'Treino A â€” Full Body Hiit',
+      name: 'Treino A - Full Body Hiit',
       plan_type: 'A',
       exercises: [
         { name: 'Agachamento Livre com Barra', sets: 4, reps: '15', weight_kg: 40, rest_seconds: 45 },
         { name: 'Supino Reto com Barra', sets: 4, reps: '15', weight_kg: 40, rest_seconds: 45 },
         { name: 'Remada Alta com Barra', sets: 4, reps: '15', weight_kg: 30, rest_seconds: 45 },
-        { name: 'FlexÃ£o de BraÃ§o', sets: 3, reps: '20', weight_kg: 0, rest_seconds: 30 },
+        { name: 'Flexao de Braco', sets: 3, reps: '20', weight_kg: 0, rest_seconds: 30 },
       ],
     },
   ],
-  'default': [
+  default: [
     {
-      name: 'Treino A â€” Superior',
+      name: 'Treino A - Superior',
       plan_type: 'A',
       exercises: [
         { name: 'Supino Reto com Barra', sets: 3, reps: '12', weight_kg: 50, rest_seconds: 60 },
@@ -167,10 +169,10 @@ function buildAiTemplatesFromLibrary(goal) {
   if (goal === 'Emagrecimento') {
     return [
       {
-        name: 'Treino A â€” Full Body + Cardio',
+        name: 'Treino A - Full Body + Cardio',
         plan_type: 'A',
         exercises: [
-          ...selectByGroups(['Pernas', 'Membros Inferiores', 'GlÃºteos'], 2),
+          ...selectByGroups(['Pernas', 'Membros Inferiores', 'Gluteos'], 2),
           ...selectByGroups(['Peitoral', 'Costas', 'Ombros'], 2),
           ...selectByGroups(['Cardio', 'Calistenia'], 2),
         ].slice(0, 6),
@@ -180,34 +182,75 @@ function buildAiTemplatesFromLibrary(goal) {
 
   return [
     {
-      name: 'Treino A â€” Peito + TrÃ­ceps',
+      name: 'Treino A - Peito + Triceps',
       plan_type: 'A',
       exercises: [
         ...selectByGroups(['Peitoral'], 3),
-        ...selectByGroups(['TrÃ­ceps', 'Ombros'], 2),
+        ...selectByGroups(['Triceps', 'Ombros'], 2),
       ].slice(0, 5),
     },
     {
-      name: 'Treino B â€” Costas + BÃ­ceps',
+      name: 'Treino B - Costas + Biceps',
       plan_type: 'B',
       exercises: [
-        ...selectByGroups(['Costas', 'TrapÃ©zio'], 3),
-        ...selectByGroups(['BÃ­ceps', 'AntebraÃ§o'], 2),
+        ...selectByGroups(['Costas', 'Trapezio'], 3),
+        ...selectByGroups(['Biceps', 'Antebraco'], 2),
       ].slice(0, 5),
     },
     {
-      name: 'Treino C â€” Pernas + Core',
+      name: 'Treino C - Pernas + Core',
       plan_type: 'C',
       exercises: [
-        ...selectByGroups(['Pernas', 'Membros Inferiores', 'GlÃºteos', 'Panturrilhas'], 4),
+        ...selectByGroups(['Pernas', 'Membros Inferiores', 'Gluteos', 'Panturrilhas'], 4),
         ...selectByGroups(['Abdominais', 'Lombar'], 1),
       ].slice(0, 5),
     },
   ];
 }
 
+function buildFallbackInstructions(exercise) {
+  const name = exercise?.name || 'Exercicio';
+  const group = normalizeExerciseKey(exercise?.group || '');
+  const setup = group.includes('pern')
+    ? 'Posicione os pes na largura dos ombros e estabilize o tronco.'
+    : 'Ajuste a postura e firme o core antes de iniciar o movimento.';
+
+  return [
+    `Comece com carga leve para aprender a tecnica de ${name}.`,
+    setup,
+    'Execute a fase de subida com controle e sem compensar com outras articulacoes.',
+    'Retorne devagar para manter tensao muscular durante toda a repeticao.',
+  ];
+}
+
+function buildFallbackTips(exercise) {
+  const group = normalizeExerciseKey(exercise?.group || '');
+  const breathingTip = group.includes('cardio')
+    ? 'Mantenha respiracao ritmada e constante.'
+    : 'Expire na fase de esforco e inspire na fase de retorno.';
+
+  return [
+    'Pare imediatamente se sentir dor articular aguda.',
+    'Priorize amplitude segura e repeticoes limpas.',
+    breathingTip,
+  ];
+}
+
+function withExerciseHelp(exercise) {
+  if (!exercise) return null;
+
+  return {
+    ...exercise,
+    instructions: exercise.instructions?.length ? exercise.instructions : buildFallbackInstructions(exercise),
+    tips: exercise.tips?.length ? exercise.tips : buildFallbackTips(exercise),
+    group: exercise.group || 'Geral',
+    difficulty: exercise.difficulty || 'Intermediario',
+  };
+}
+
 export default function WorkoutPage() {
   const toast = useToast();
+  const { user } = useAuth();
   const [confetti, setConfetti] = useState(false);
   const [plans, setPlans] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -222,7 +265,7 @@ export default function WorkoutPage() {
   const restIntervalRef = useRef(null);
   const [exerciseHistory, setExerciseHistory] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
-  const [exerciseInfo, setExerciseInfo] = useState(null); // instruÃ§Ãµes
+  const [exerciseInfo, setExerciseInfo] = useState(null); // instrucoes
   const [generatingAI, setGeneratingAI] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState(null);
   const [librarySearch, setLibrarySearch] = useState('');
@@ -232,6 +275,9 @@ export default function WorkoutPage() {
   const [planLibrarySearch, setPlanLibrarySearch] = useState('');
   const [planLibraryGroup, setPlanLibraryGroup] = useState('');
   const [planLibraryLimit, setPlanLibraryLimit] = useState(30);
+  const subscriptionPlan = user?.profile?.subscription_plan || 'free';
+  const canUseAiWorkoutBuilder = hasFeature(subscriptionPlan, 'ai_workout_builder');
+  const canUseRealtimeFeatures = hasFeature(subscriptionPlan, 'realtime_features');
 
   const fetchData = useCallback(async () => {
     try {
@@ -328,9 +374,9 @@ export default function WorkoutPage() {
     try {
       await api.put(`/api/workout-sessions/${activeSession.id}`, { exercises: activeSession.exercises });
       await api.post(`/api/workout-sessions/${activeSession.id}/complete`);
-      navigator.vibrate?.([60, 30, 120, 30, 60]); // celebraÃ§Ã£o hÃ¡ptica
+      navigator.vibrate?.([60, 30, 120, 30, 60]); // celebracao haptica
       setConfetti(true);
-      toast('Treino finalizado! IncrÃ­vel! ðŸ†', 'success', 3500);
+      toast('Treino finalizado! Incrivel!', 'success', 3500);
       setActiveSession(null);
       setTab('history');
       fetchData();
@@ -397,6 +443,10 @@ export default function WorkoutPage() {
   };
 
   const generateAIPlans = async () => {
+    if (!canUseAiWorkoutBuilder) {
+      toast('Geracao de treino por IA disponivel no plano Pro ou Elite.', 'info');
+      return;
+    }
     setGeneratingAI(true);
     await new Promise((r) => setTimeout(r, 1200));
     const stored = localStorage.getItem('gymie_measurements');
@@ -409,7 +459,7 @@ export default function WorkoutPage() {
         await api.post('/api/workout-plans', t);
       }
       fetchData();
-      toast(`Treino ABC gerado para "${goal || 'vocÃª'}" usando a biblioteca da IA! ðŸ’ª`, 'success');
+      toast(`Treino ABC gerado para "${goal || 'voce'}" usando a biblioteca da IA.`, 'success');
     } catch (err) { console.error(err); toast('Erro ao gerar treino', 'error'); }
     setGeneratingAI(false);
     setShowAddPlan(false);
@@ -417,7 +467,7 @@ export default function WorkoutPage() {
 
   const completedToday = sessions.filter((s) => s.status === 'completed' && s.date === new Date().toISOString().split('T')[0]);
 
-  // Biblioteca â€” dados derivados
+  // Biblioteca - dados derivados
   const allExercises = useMemo(() => mergedExerciseCatalog, []);
   const libraryGroups = useMemo(() => (
     [...new Set(allExercises.map((e) => e.group).filter(Boolean))]
@@ -548,8 +598,8 @@ export default function WorkoutPage() {
       <div className="flex gap-2 mb-5">
         {[
           { id: 'plans', label: 'Planos' },
-          { id: 'session', label: 'SessÃ£o', disabled: !activeSession, badge: activeSession },
-          { id: 'history', label: 'HistÃ³rico' },
+          { id: 'session', label: 'Sessao', disabled: !activeSession, badge: activeSession },
+          { id: 'history', label: 'Historico' },
           { id: 'library', label: 'Biblioteca' },
         ].map((t) => (
           <button
@@ -573,25 +623,32 @@ export default function WorkoutPage() {
         <div className="space-y-3 animate-fade-in">
           {plans.length === 0 ? (
             <div className="text-center py-10 animate-fade-in">
-              <div className="text-6xl mb-4">ðŸ’ª</div>
+              <div className="text-6xl mb-4"><Dumbbell size={56} className="mx-auto text-gymie" /></div>
               <h3 className="text-lg font-semibold text-txt-primary mb-1">Pronto pra treinar?</h3>
               <p className="text-sm text-txt-muted mb-6 max-w-[260px] mx-auto">
-                Crie seu plano ou deixe a IA montar um ABC automÃ¡tico usando a nova biblioteca com {allExercises.length} exercÃ­cios em GIF.
+                Crie seu plano ou deixe a IA montar um ABC automatico usando a nova biblioteca com {allExercises.length} exercicios em GIF.
               </p>
               <button
                 onClick={generateAIPlans}
-                disabled={generatingAI}
+                disabled={generatingAI || !canUseAiWorkoutBuilder}
                 className="gymie-btn-primary px-6 py-2.5 mb-3 w-full flex items-center justify-center gap-2"
               >
                 {generatingAI
                   ? <><Loader2 size={14} className="animate-spin" /> Gerando treino...</>
-                  : <><Sparkles size={14} /> Gerar plano com IA</>}
+                  : !canUseAiWorkoutBuilder
+                    ? <><Sparkles size={14} /> Recurso Pro/Elite</>
+                    : <><Sparkles size={14} /> Gerar plano com IA</>}
               </button>
+              {!canUseAiWorkoutBuilder && (
+                <p className="text-[11px] text-txt-muted mb-3">
+                  Seu plano atual libera criacao manual. Upgrade para usar geracao automatica por IA.
+                </p>
+              )}
               <button
                 onClick={() => setShowAddPlan(true)}
                 className="w-full text-sm text-txt-muted hover:text-txt-secondary transition-colors py-2"
               >
-                Ou criar plano manualmente â†’
+                Ou criar plano manualmente ->
               </button>
             </div>
           ) : (
@@ -606,7 +663,7 @@ export default function WorkoutPage() {
                   </div>
                   <div className="flex-1">
                     <p className="font-semibold text-txt-primary">{plan.name}</p>
-                    <p className="text-xs text-txt-muted">{plan.exercises.length} exercÃ­cios</p>
+                    <p className="text-xs text-txt-muted">{plan.exercises.length} exercicios</p>
                   </div>
                   <button
                     data-testid={`start-plan-${plan.plan_type}`}
@@ -625,7 +682,7 @@ export default function WorkoutPage() {
                           <p className="text-sm text-txt-primary">{ex.name}</p>
                           {findExercise(ex.name) && (
                             <button
-                              onClick={() => setExerciseInfo(findExercise(ex.name))}
+                              onClick={() => setExerciseInfo(withExerciseHelp(findExercise(ex.name)))}
                               className="text-txt-disabled hover:text-gymie transition-colors"
                             >
                               <Info size={12} />
@@ -656,13 +713,16 @@ export default function WorkoutPage() {
       {tab === 'session' && activeSession && (
         <div className="space-y-4 animate-fade-in">
           {/* Session Header */}
-          <div className="gymie-card p-4 border-l-4 border-l-purple-400">
-            <div className="flex items-center gap-2 mb-1">
-              <Dumbbell size={14} className="text-purple-400" />
-              <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">{activeSession.plan_name}</span>
+            <div className="gymie-card p-4 border-l-4 border-l-purple-400">
+              <div className="flex items-center gap-2 mb-1">
+                <Dumbbell size={14} className="text-purple-400" />
+                <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">{activeSession.plan_name}</span>
+              </div>
+              <p className="text-xs text-txt-muted">Sessao em andamento</p>
+              <p className="text-[10px] text-txt-disabled mt-1">
+                {canUseRealtimeFeatures ? 'Contagem RT liberada no seu plano.' : 'Contagem RT basica ativa neste plano.'}
+              </p>
             </div>
-            <p className="text-xs text-txt-muted">SessÃ£o em andamento</p>
-          </div>
 
           {/* Exercises */}
           {activeSession.exercises.map((ex, exIdx) => {
@@ -677,14 +737,14 @@ export default function WorkoutPage() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <p className={`font-semibold ${allDone ? 'text-purple-400' : 'text-txt-primary'}`}>{ex.name}</p>
-                    <p className="text-[11px] text-txt-muted">{ex.target_sets}x{ex.target_reps} â€¢ Descanso: {ex.rest_seconds}s â€¢ RT: {repsDone} reps</p>
+                    <p className="text-[11px] text-txt-muted">{ex.target_sets}x{ex.target_reps} - Descanso: {ex.rest_seconds}s - RT: {repsDone} reps</p>
                   </div>
                   {allDone && <Check size={18} className="text-purple-400" />}
                 </div>
                 
                 <div className="space-y-2">
                   <div className="grid grid-cols-4 gap-2 text-[10px] font-medium text-txt-muted uppercase tracking-wider px-1">
-                    <span>SÃ©rie</span><span>Reps RT</span><span>Peso</span><span></span>
+                    <span>Serie</span><span>Reps RT</span><span>Peso</span><span></span>
                   </div>
                   {ex.sets.map((set, setIdx) => (
                     <div key={setIdx} className="grid grid-cols-4 gap-2 items-center">
@@ -693,7 +753,7 @@ export default function WorkoutPage() {
                         <button
                           onClick={() => adjustSetRepsRT(exIdx, setIdx, -1)}
                           className="w-7 h-7 rounded-gymie-sm bg-surface-hl text-txt-muted hover:bg-surface-elevated"
-                          title="Diminuir repetiÃ§Ã£o"
+                          title="Diminuir repeticao"
                         >
                           -
                         </button>
@@ -706,7 +766,7 @@ export default function WorkoutPage() {
                         <button
                           onClick={() => adjustSetRepsRT(exIdx, setIdx, 1)}
                           className="w-7 h-7 rounded-gymie-sm bg-gymie/20 text-gymie hover:bg-gymie/30"
-                          title="Adicionar repetiÃ§Ã£o"
+                          title="Adicionar repeticao"
                         >
                           +
                         </button>
@@ -736,14 +796,14 @@ export default function WorkoutPage() {
                     onClick={() => fetchExerciseHistory(ex.name)}
                     className="flex-1 py-2 text-xs text-txt-muted hover:text-purple-400 flex items-center justify-center gap-1 transition-colors border border-border-subtle rounded-gymie-sm"
                   >
-                    <TrendingUp size={12} /> HistÃ³rico
+                    <TrendingUp size={12} /> Historico
                   </button>
                   {findExercise(ex.name) && (
                     <button
-                      onClick={() => setExerciseInfo(findExercise(ex.name))}
+                      onClick={() => setExerciseInfo(withExerciseHelp(findExercise(ex.name)))}
                       className="flex-1 py-2 text-xs text-txt-muted hover:text-gymie flex items-center justify-center gap-1 transition-colors border border-border-subtle rounded-gymie-sm"
                     >
-                      <Info size={12} /> InstruÃ§Ãµes
+                      <Info size={12} /> Instrucoes
                     </button>
                   )}
                 </div>
@@ -772,8 +832,8 @@ export default function WorkoutPage() {
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-hl flex items-center justify-center">
                 <Clock size={28} className="text-txt-muted" />
               </div>
-              <p className="text-txt-secondary">Nenhum treino concluÃ­do</p>
-              <p className="text-xs text-txt-muted mt-1">Finalize uma sessÃ£o para ver o histÃ³rico</p>
+              <p className="text-txt-secondary">Nenhum treino concluido</p>
+              <p className="text-xs text-txt-muted mt-1">Finalize uma sessao para ver o historico</p>
             </div>
           ) : (
             sessions.filter(s => s.status === 'completed').slice(0, 20).map((s) => {
@@ -793,7 +853,7 @@ export default function WorkoutPage() {
                       <p className="font-semibold text-txt-primary truncate">{s.plan_name}</p>
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="text-[11px] text-txt-muted font-data">{s.date}</span>
-                        <span className="text-[11px] text-txt-muted">{completedSets}/{totalSets} sÃ©ries</span>
+                        <span className="text-[11px] text-txt-muted">{completedSets}/{totalSets} series</span>
                         <span className="text-[11px] text-txt-muted">{s.exercises.length} ex.</span>
                       </div>
                     </div>
@@ -811,7 +871,7 @@ export default function WorkoutPage() {
                               <p className="text-sm text-txt-primary">{ex.name}</p>
                             </div>
                             <div className="flex items-center gap-3 text-[11px] font-data text-txt-muted">
-                              <span>{done.length}/{ex.sets.length} sÃ©ries</span>
+                              <span>{done.length}/{ex.sets.length} series</span>
                               {maxWeight > 0 && <span className="text-txt-secondary">{maxWeight}kg</span>}
                             </div>
                           </div>
@@ -836,16 +896,16 @@ export default function WorkoutPage() {
                 <Sparkles size={16} className="text-gymie" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-txt-primary">Biblioteca da IA ({allExercises.length} exercÃ­cios)</p>
+                <p className="text-sm font-semibold text-txt-primary">Biblioteca da IA ({allExercises.length} exercicios)</p>
                 <p className="text-xs text-txt-secondary mt-1 leading-relaxed">
-                  O Gymie usa esta base para sugerir substituiÃ§Ãµes e gerar treinos/planos automaticamente.
+                  O Gymie usa esta base para sugerir substituicoes e gerar treinos/planos automaticamente.
                 </p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 mt-3">
               <div className="bg-surface-hl rounded-gymie-sm p-2 text-center">
                 <p className="text-sm font-bold font-data text-gymie">{allExercises.length}</p>
-                <p className="text-[10px] text-txt-muted">ExercÃ­cios</p>
+                <p className="text-[10px] text-txt-muted">Exercicios</p>
               </div>
               <div className="bg-surface-hl rounded-gymie-sm p-2 text-center">
                 <p className="text-sm font-bold font-data text-gymie">{libraryGroups.length}</p>
@@ -853,7 +913,7 @@ export default function WorkoutPage() {
               </div>
               <div className="bg-surface-hl rounded-gymie-sm p-2 text-center">
                 <p className="text-sm font-bold font-data text-gymie">{libraryMediaCount}</p>
-                <p className="text-[10px] text-txt-muted">MÃ­dias</p>
+                <p className="text-[10px] text-txt-muted">Midias</p>
               </div>
             </div>
           </div>
@@ -864,7 +924,7 @@ export default function WorkoutPage() {
             <input
               value={librarySearch}
               onChange={(e) => setLibrarySearch(e.target.value)}
-              placeholder="Buscar por exercÃ­cio ou grupo..."
+              placeholder="Buscar por exercicio ou grupo..."
               className="w-full gymie-input pl-9"
             />
           </div>
@@ -889,8 +949,8 @@ export default function WorkoutPage() {
           {/* Exercise grid */}
           {filteredExercises.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-5xl mb-3">ðŸ”</div>
-              <p className="text-txt-muted text-sm">Nenhum exercÃ­cio encontrado</p>
+              <div className="text-5xl mb-3"><Search size={42} className="mx-auto text-txt-disabled" /></div>
+              <p className="text-txt-muted text-sm">Nenhum exercicio encontrado</p>
               <p className="text-[11px] text-txt-disabled mt-1">Tente outro termo ou limpe o filtro por grupo</p>
             </div>
           ) : (
@@ -899,7 +959,7 @@ export default function WorkoutPage() {
                 {visibleExercises.map((ex, idx) => (
                 <button
                   key={`${ex.group}-${ex.name}-${idx}`}
-                  onClick={() => setExerciseInfo(ex)}
+                  onClick={() => setExerciseInfo(withExerciseHelp(ex))}
                   className="gymie-card p-0 text-left hover:border-gymie/30 transition-all overflow-hidden"
                 >
                   {/* GIF preview */}
@@ -967,7 +1027,7 @@ export default function WorkoutPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-center text-txt-muted py-8">Sem histÃ³rico</p>
+              <p className="text-center text-txt-muted py-8">Sem historico</p>
             )}
           </div>
         </div>
@@ -985,7 +1045,7 @@ export default function WorkoutPage() {
                 <h3 className="text-lg font-semibold text-txt-primary">{exerciseInfo.name}</h3>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-xs text-gymie">{exerciseInfo.group}</span>
-                  <span className="text-txt-muted">Â·</span>
+                  <span className="text-txt-muted">-</span>
                   <span className="text-xs text-txt-muted">{exerciseInfo.difficulty}</span>
                 </div>
               </div>
@@ -994,7 +1054,7 @@ export default function WorkoutPage() {
               </button>
             </div>
 
-            {/* GIF demonstraÃ§Ã£o */}
+            {/* GIF demonstracao */}
             {exerciseInfo.gifs?.length > 0 && (
               <div className="flex gap-3 mb-5 overflow-x-auto pb-1">
                 {exerciseInfo.gifs.slice(0, 2).map((gif, i) => (
@@ -1070,16 +1130,20 @@ export default function WorkoutPage() {
             {/* Gerar com IA */}
             <button
               onClick={generateAIPlans}
-              disabled={generatingAI}
+              disabled={generatingAI || !canUseAiWorkoutBuilder}
               className="w-full mb-5 py-3 px-4 border border-gymie/30 bg-gymie/5 text-gymie rounded-gymie flex items-center justify-center gap-2 text-sm font-medium hover:bg-gymie/10 transition-all disabled:opacity-60"
             >
               {generatingAI
                 ? <><Loader2 size={16} className="animate-spin" /> Gerando treino ABC com IA...</>
-                : <><Sparkles size={16} /> Gerar Treino ABC com IA</>
+                : !canUseAiWorkoutBuilder
+                  ? <><Sparkles size={16} /> Disponivel no Pro/Elite</>
+                  : <><Sparkles size={16} /> Gerar Treino ABC com IA</>
               }
             </button>
             <p className="text-[11px] text-txt-muted text-center -mt-3 mb-4">
-              A IA usa a biblioteca de exercÃ­cios em GIF para montar o plano automaticamente.
+              {canUseAiWorkoutBuilder
+                ? 'A IA usa a biblioteca de exercicios em GIF para montar o plano automaticamente.'
+                : 'No plano Free, voce cria o plano manualmente. IA para treinos no Pro/Elite.'}
             </p>
             <div className="flex items-center gap-2 mb-5">
               <div className="flex-1 h-px bg-border-default" />
@@ -1097,7 +1161,7 @@ export default function WorkoutPage() {
                     value={newPlan.name}
                     onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
                     className="w-full gymie-input"
-                    placeholder="Ex: Peito e TrÃ­ceps"
+                    placeholder="Ex: Peito e Triceps"
                   />
                 </div>
                 <div>
@@ -1123,7 +1187,7 @@ export default function WorkoutPage() {
               {/* Add exercise */}
               <div className="p-4 bg-surface-hl rounded-gymie">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-txt-muted uppercase tracking-wider">Adicionar exercÃ­cio</p>
+                  <p className="text-xs text-txt-muted uppercase tracking-wider">Adicionar exercicio</p>
                   <button
                     type="button"
                     onClick={() => setShowPlanLibraryPicker((v) => !v)}
@@ -1140,7 +1204,7 @@ export default function WorkoutPage() {
                       <input
                         value={planLibrarySearch}
                         onChange={(e) => setPlanLibrarySearch(e.target.value)}
-                        placeholder="Buscar exercÃ­cio da biblioteca..."
+                        placeholder="Buscar exercicio da biblioteca..."
                         className="w-full gymie-input pl-8 py-2 text-sm"
                       />
                     </div>
@@ -1195,11 +1259,11 @@ export default function WorkoutPage() {
                   value={newExercise.name}
                   onChange={(e) => setNewExercise({ ...newExercise, name: e.target.value })}
                   className="w-full gymie-input mb-3"
-                  placeholder="Nome do exercÃ­cio"
+                  placeholder="Nome do exercicio"
                 />
                 <div className="grid grid-cols-4 gap-2 mb-3">
                   <div>
-                    <label className="text-[10px] text-txt-muted mb-1 block">SÃ©ries</label>
+                    <label className="text-[10px] text-txt-muted mb-1 block">Series</label>
                     <input
                       type="number"
                       value={newExercise.sets}
@@ -1247,7 +1311,7 @@ export default function WorkoutPage() {
               {/* Exercise list */}
               {newPlan.exercises.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs text-txt-muted uppercase tracking-wider">ExercÃ­cios ({newPlan.exercises.length})</p>
+                  <p className="text-xs text-txt-muted uppercase tracking-wider">Exercicios ({newPlan.exercises.length})</p>
                   {newPlan.exercises.map((ex, i) => (
                     <div key={i} className="flex items-center justify-between py-2 px-3 bg-surface-hl rounded-gymie-sm">
                       <span className="text-sm text-txt-primary">{ex.name}</span>

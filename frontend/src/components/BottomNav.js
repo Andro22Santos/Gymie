@@ -5,7 +5,7 @@ import { Target, MessageSquare, UtensilsCrossed, Dumbbell, TrendingUp, User } fr
 const tabs = [
   { path: '/', icon: Target, label: 'Hoje' },
   { path: '/chat', icon: MessageSquare, label: 'Gymie' },
-  { path: '/meals', icon: UtensilsCrossed, label: 'Refeições' },
+  { path: '/meals', icon: UtensilsCrossed, label: 'Refeicoes' },
   { path: '/workout', icon: Dumbbell, label: 'Treino' },
   { path: '/progress', icon: TrendingUp, label: 'Progresso' },
   { path: '/profile', icon: User, label: 'Perfil' },
@@ -13,19 +13,23 @@ const tabs = [
 
 function useCheckinPending() {
   const [pending, setPending] = useState(false);
+
   useEffect(() => {
     function check() {
       const done = localStorage.getItem('checkin_done_date');
       const today = new Date().toISOString().split('T')[0];
       setPending(done !== today);
     }
+
     check();
-    // Re-check whenever storage changes (e.g., after check-in is saved)
     window.addEventListener('storage', check);
-    // Also poll every 30s in case same-tab update doesn't trigger storage event
     const interval = setInterval(check, 30000);
-    return () => { window.removeEventListener('storage', check); clearInterval(interval); };
+    return () => {
+      window.removeEventListener('storage', check);
+      clearInterval(interval);
+    };
   }, []);
+
   return pending;
 }
 
@@ -50,10 +54,10 @@ export default function BottomNav() {
           return (
             <button
               key={tab.path}
-              data-testid={`nav-${tab.label.toLowerCase().replace('ç', 'c').replace('õ', 'o')}`}
+              data-testid={`nav-${tab.label.toLowerCase().replace(/[^a-z0-9]/g, '')}`}
               onClick={() => navigate(tab.path)}
-              className={`flex flex-col items-center justify-center flex-1 h-full
-                         transition-all duration-200 relative group touch-feedback`}
+              className="flex flex-col items-center justify-center flex-1 h-full
+                         transition-all duration-200 relative group touch-feedback"
             >
               {active && (
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-0.5 bg-gymie rounded-full" />
@@ -66,7 +70,6 @@ export default function BottomNav() {
                   strokeWidth={active ? 2 : 1.5}
                   className={active ? 'text-gymie' : 'text-txt-muted group-hover:text-txt-secondary'}
                 />
-                {/* Notification dot */}
                 {showDot && (
                   <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-400 animate-pulse border border-bg" />
                 )}

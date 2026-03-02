@@ -1,8 +1,9 @@
 import os
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict
 from contextlib import asynccontextmanager
+from urllib.parse import quote_plus
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,9 @@ DB_NAME = os.environ.get("DB_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET")
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_ENV = (os.environ.get("APP_ENV") or "development").strip().lower()
+STRIPE_CHECKOUT_URL_PRO = os.environ.get("STRIPE_CHECKOUT_URL_PRO", "")
+STRIPE_CHECKOUT_URL_ELITE = os.environ.get("STRIPE_CHECKOUT_URL_ELITE", "")
+STRIPE_PORTAL_URL = os.environ.get("STRIPE_PORTAL_URL", "")
 
 
 def parse_cors_origins() -> List[str]:
@@ -140,6 +144,92 @@ def today_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+PLAN_CATALOG: Dict[str, dict] = {
+    "free": {
+        "id": "free",
+        "name": "Free",
+        "price_label": "R$ 0",
+        "description": "Base para iniciar no Gymie.",
+        "features": ["chat", "manual_meals", "manual_workout_plans", "progress_tracking"],
+    },
+    "pro": {
+        "id": "pro",
+        "name": "Pro",
+        "price_label": "R$ 29/m",
+        "description": "IA para treino e nutricao.",
+        "features": [
+            "chat",
+            "manual_meals",
+            "manual_workout_plans",
+            "progress_tracking",
+            "ai_workout_builder",
+            "ai_meal_photo_analysis",
+            "pantry_memory",
+            "pwa_install",
+        ],
+    },
+    "elite": {
+        "id": "elite",
+        "name": "Elite",
+        "price_label": "R$ 59/m",
+        "description": "Plano completo com recursos em tempo real.",
+        "features": [
+            "chat",
+            "manual_meals",
+            "manual_workout_plans",
+            "progress_tracking",
+            "ai_workout_builder",
+            "ai_meal_photo_analysis",
+            "pantry_memory",
+            "pwa_install",
+            "realtime_features",
+        ],
+    },
+}
+
+
+def normalize_plan(plan: Optional[str]) -> str:
+    value = (plan or "").strip().lower()
+    return value if value in PLAN_CATALOG else "free"
+
+
+def normalize_subscription_status(status: Optional[str]) -> str:
+    allowed = {"inactive", "active", "trialing", "past_due", "canceled"}
+    value = (status or "").strip().lower()
+    return value if value in allowed else "inactive"
+
+
+def with_profile_defaults(profile: Optional[dict]) -> dict:
+    base = {
+        "weight": None,
+        "height": None,
+        "goal": None,
+        "goal_weight": None,
+        "routine": {},
+        "training_days": [],
+        "water_goal_ml": 2500,
+        "persona_style": "tactical",
+        "reminder_times": ["08:00", "11:00", "12:00", "17:30", "21:15", "23:00"],
+        "calorie_target": 2000,
+        "protein_target": 150,
+        "carb_target": 200,
+        "fat_target": 65,
+        "onboarding_completed": False,
+        "subscription_plan": "free",
+        "subscription_status": "inactive",
+        "stripe_customer_id": None,
+    }
+    merged = {**base, **(profile or {})}
+    merged["subscription_plan"] = normalize_plan(merged.get("subscription_plan"))
+    merged["subscription_status"] = normalize_subscription_status(merged.get("subscription_status"))
+    return merged
+
+
+def has_feature_access(profile: Optional[dict], feature: str) -> bool:
+    plan = normalize_plan((profile or {}).get("subscription_plan"))
+    return feature in PLAN_CATALOG[plan]["features"]
+
+
 # ── Pydantic Models ──────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
@@ -228,6 +318,10 @@ class MemoryFactCreate(BaseModel):
     category: Optional[str] = "general"
 
 
+class BillingCheckoutCreate(BaseModel):
+    plan: str
+
+
 # ── Auth Endpoints ───────────────────────────────────────────
 
 @app.post("/api/auth/register")
@@ -253,6 +347,9 @@ async def register(request: Request, req: RegisterRequest):
         "persona_style": "tactical", "reminder_times": ["08:00", "11:00", "12:00", "17:30", "21:15", "23:00"],
         "calorie_target": 2000, "protein_target": 150, "carb_target": 200, "fat_target": 65,
         "onboarding_completed": False,
+        "subscription_plan": "free",
+        "subscription_status": "inactive",
+        "stripe_customer_id": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.user_profiles.insert_one(profile)
@@ -389,6 +486,9 @@ async def process_google_session(req: GoogleSessionRequest):
                 "reminder_times": ["08:00", "11:00", "12:00", "17:30", "21:15", "23:00"],
                 "calorie_target": 2000, "protein_target": 150, "carb_target": 200, "fat_target": 65,
                 "onboarding_completed": False,
+                "subscription_plan": "free",
+                "subscription_status": "inactive",
+                "stripe_customer_id": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             await db.user_profiles.insert_one(profile)
@@ -434,14 +534,20 @@ async def process_google_session(req: GoogleSessionRequest):
 async def get_me(user=Depends(get_current_user)):
     db = get_db()
     u = await db.users.find_one({"_id": user["user_id"]})
-    profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    profile = with_profile_defaults(await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}))
     if not u:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+    plan = normalize_plan(profile.get("subscription_plan"))
     return {
         "user_id": u["_id"],
         "name": u["name"],
         "email": u["email"],
         "profile": profile,
+        "billing": {
+            "plan": plan,
+            "status": profile.get("subscription_status", "inactive"),
+            "features": PLAN_CATALOG[plan]["features"],
+        },
     }
 
 
@@ -1014,6 +1120,74 @@ async def update_persona(req: dict, user=Depends(get_current_user)):
 
 
 # ── Workout Plans ────────────────────────────────────────────
+
+@app.get("/api/billing/plans")
+async def get_billing_plans(user=Depends(get_current_user)):
+    db = get_db()
+    profile = with_profile_defaults(await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}))
+    current_plan = normalize_plan(profile.get("subscription_plan"))
+    status = profile.get("subscription_status", "inactive")
+    plans = []
+    for plan in PLAN_CATALOG.values():
+        plans.append({
+            **plan,
+            "current": plan["id"] == current_plan,
+            "checkout_enabled": plan["id"] in {"pro", "elite"},
+        })
+    return {
+        "plans": plans,
+        "current_plan": current_plan,
+        "current_status": status,
+    }
+
+
+@app.get("/api/billing/status")
+async def get_billing_status(user=Depends(get_current_user)):
+    db = get_db()
+    profile = with_profile_defaults(await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}))
+    plan = normalize_plan(profile.get("subscription_plan"))
+    return {
+        "plan": plan,
+        "status": profile.get("subscription_status", "inactive"),
+        "features": PLAN_CATALOG[plan]["features"],
+    }
+
+
+@app.post("/api/billing/checkout")
+async def create_billing_checkout(req: BillingCheckoutCreate, user=Depends(get_current_user)):
+    plan = normalize_plan(req.plan)
+    if plan not in {"pro", "elite"}:
+        raise HTTPException(status_code=400, detail="Plano invalido para checkout")
+
+    checkout_url = STRIPE_CHECKOUT_URL_PRO if plan == "pro" else STRIPE_CHECKOUT_URL_ELITE
+    if not checkout_url:
+        raise HTTPException(status_code=400, detail="Checkout Stripe nao configurado no servidor")
+
+    uid = quote_plus(user["user_id"])
+    separator = "&" if "?" in checkout_url else "?"
+    full_checkout_url = f"{checkout_url}{separator}client_reference_id={uid}&plan={plan}"
+
+    db = get_db()
+    await db.user_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "billing_pending_plan": plan,
+            "billing_checkout_requested_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+
+    return {"checkout_url": full_checkout_url, "plan": plan}
+
+
+@app.get("/api/billing/portal")
+async def get_billing_portal(user=Depends(get_current_user)):
+    if not STRIPE_PORTAL_URL:
+        raise HTTPException(status_code=400, detail="Portal Stripe nao configurado no servidor")
+    uid = quote_plus(user["user_id"])
+    separator = "&" if "?" in STRIPE_PORTAL_URL else "?"
+    return {"portal_url": f"{STRIPE_PORTAL_URL}{separator}client_reference_id={uid}"}
+
 
 @app.get("/api/workout-plans")
 async def get_workout_plans(user=Depends(get_current_user)):
@@ -1602,7 +1776,9 @@ async def analyze_meal(request: Request, req: MealAnalyzeRequest, user=Depends(g
     """
     try:
         db = get_db()
-        profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+        profile = with_profile_defaults(await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}))
+        if not has_feature_access(profile, "ai_meal_photo_analysis"):
+            raise HTTPException(status_code=402, detail="Feature disponivel apenas para plano Pro ou Elite")
         persona_style = profile.get("persona_style", "tactical") if profile else "tactical"
 
         result = await analyze_meal_photo(
@@ -1631,6 +1807,8 @@ async def analyze_meal(request: Request, req: MealAnalyzeRequest, user=Depends(g
             "agent_code": result.get("agent_code", "FOTO"),
             "analyzed_at": datetime.now(timezone.utc).isoformat(),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Meal analysis error: {e}")
         return {
@@ -1744,6 +1922,9 @@ async def seed_data():
         "reminder_times": ["08:00", "11:00", "12:00", "17:30", "21:15", "23:00"],
         "calorie_target": 1800, "protein_target": 160, "carb_target": 180, "fat_target": 55,
         "onboarding_completed": True,
+        "subscription_plan": "pro",
+        "subscription_status": "active",
+        "stripe_customer_id": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.user_profiles.insert_one(profile)

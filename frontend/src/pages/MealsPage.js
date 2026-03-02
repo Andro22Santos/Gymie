@@ -5,6 +5,8 @@ import {
   Sparkles, Check, ChevronDown, ChevronUp, Edit3, RefreshCw
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { hasFeature } from '../utils/subscription';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: 'Café', emoji: '☀️' },
@@ -15,12 +17,31 @@ const MEAL_TYPES = [
   { id: 'post_workout', label: 'Pós-treino', emoji: '🏋️' },
 ];
 
+const MEAL_TYPE_OVERRIDES = {
+  breakfast: { label: 'Cafe', emoji: '\u2600\ufe0f' },
+  snack: { label: 'Lanche', emoji: '\ud83c\udf4e' },
+  lunch: { label: 'Almoco', emoji: '\ud83c\udf7d\ufe0f' },
+  dinner: { label: 'Jantar', emoji: '\ud83c\udf19' },
+  pre_workout: { label: 'Pre-treino', emoji: '\ud83d\udcaa' },
+  post_workout: { label: 'Pos-treino', emoji: '\ud83c\udfcb\ufe0f' },
+};
+
+const MEAL_TYPES_SAFE = MEAL_TYPES.map((item) => ({
+  ...item,
+  ...(MEAL_TYPE_OVERRIDES[item.id] || {}),
+}));
+
 export default function MealsPage() {
   const toast = useToast();
+  const { user } = useAuth();
   const videoRef = React.useRef(null);
   const streamRef = React.useRef(null);
+  const subscriptionPlan = user?.profile?.subscription_plan || 'free';
+  const canUseAiMealVision = hasFeature(subscriptionPlan, 'ai_meal_photo_analysis');
+  const canUsePantryMemory = hasFeature(subscriptionPlan, 'pantry_memory');
   const [meals, setMeals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingPantry, setLoadingPantry] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState(1); // 1: input, 2: analysis result, 3: edit details
   const [form, setForm] = useState({ 
@@ -41,6 +62,9 @@ export default function MealsPage() {
   const [capturingPhoto, setCapturingPhoto] = useState(false);
   const [savingInsight, setSavingInsight] = useState(false);
   const [insightSaved, setInsightSaved] = useState(false);
+  const [pantryInput, setPantryInput] = useState('');
+  const [pantryItems, setPantryItems] = useState([]);
+  const [savingPantry, setSavingPantry] = useState(false);
 
   const fetchMeals = useCallback(async () => {
     try {
@@ -50,7 +74,25 @@ export default function MealsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchMeals(); }, [fetchMeals]);
+  const fetchPantry = useCallback(async () => {
+    try {
+      const res = await api.get('/api/memory/facts');
+      const items = (res.data.facts || [])
+        .filter((f) => f.category === 'pantry')
+        .map((f) => ({ id: f.id, name: (f.fact || '').trim() }))
+        .filter((f) => f.name.length > 0);
+      setPantryItems(items);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingPantry(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMeals();
+    fetchPantry();
+  }, [fetchMeals, fetchPantry]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -75,6 +117,11 @@ export default function MealsPage() {
 
   const startCamera = async () => {
     setCameraError('');
+    if (!canUseAiMealVision) {
+      setCameraError('Recurso de foto com IA disponivel no plano Pro ou Elite.');
+      toast('Analise de refeicao com IA disponivel no Pro ou Elite.', 'info');
+      return;
+    }
     if (!navigator?.mediaDevices?.getUserMedia) {
       setCameraError('Seu navegador não suporta câmera em tempo real.');
       toast('Câmera em tempo real não suportada neste dispositivo', 'error');
@@ -103,6 +150,10 @@ export default function MealsPage() {
 
   const onPickPhotoFile = (file) => {
     if (!file) return;
+    if (!canUseAiMealVision) {
+      toast('Upload de foto com IA disponivel no plano Pro ou Elite.', 'info');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result;
@@ -149,6 +200,10 @@ export default function MealsPage() {
   };
 
   const handleAnalyze = async () => {
+    if (!canUseAiMealVision) {
+      toast('Analise automatica de refeicao disponivel no plano Pro ou Elite.', 'info');
+      return;
+    }
     if (!form.description.trim() && !form.photo_url) return;
     const descToSend = form.description.trim() || (form.photo_url ? 'Foto de refeição' : '');
     if (!form.description.trim()) {
@@ -189,6 +244,10 @@ export default function MealsPage() {
       }
     } catch (err) {
       console.error(err);
+      if (err?.response?.status === 402) {
+        toast('Analise de refeicao com IA disponivel apenas no Pro/Elite.', 'info');
+        return;
+      }
       setAnalysisResult({
         success: false,
         text: 'Erro ao analisar. Tente novamente.',
@@ -267,6 +326,50 @@ export default function MealsPage() {
     }
   };
 
+  const addPantryItems = async () => {
+    if (!canUsePantryMemory) {
+      toast('Lista de alimentos disponivel no plano Pro ou Elite.', 'info');
+      return;
+    }
+
+    const items = pantryInput
+      .split(',')
+      .map((v) => v.trim())
+      .filter((v) => v.length >= 2);
+
+    if (!items.length) return;
+    setSavingPantry(true);
+    try {
+      const existing = new Set(pantryItems.map((i) => i.name.toLowerCase()));
+      for (const item of items) {
+        if (existing.has(item.toLowerCase())) continue;
+        await api.post('/api/memory/facts', {
+          category: 'pantry',
+          fact: item,
+        });
+      }
+      setPantryInput('');
+      await fetchPantry();
+      toast('Lista de alimentos atualizada.', 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Nao foi possivel salvar a lista agora.', 'error');
+    } finally {
+      setSavingPantry(false);
+    }
+  };
+
+  const deletePantryItem = async (factId) => {
+    if (!factId) return;
+    try {
+      await api.delete(`/api/memory/facts/${factId}`);
+      setPantryItems((prev) => prev.filter((item) => item.id !== factId));
+    } catch (err) {
+      console.error(err);
+      toast('Nao foi possivel remover este item agora.', 'error');
+    }
+  };
+
   const openModal = () => {
     const now = new Date();
     const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -338,6 +441,66 @@ export default function MealsPage() {
         </div>
       </div>
 
+      {/* Optional pantry list for AI recipes */}
+      <div className="gymie-card p-4 mb-5">
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <p className="text-sm font-semibold text-txt-primary">Lista de alimentos (opcional)</p>
+            <p className="text-[11px] text-txt-muted mt-1">
+              A IA pode usar esses itens para criar receitas e dieta com o que voce tem em casa.
+            </p>
+          </div>
+          <span className="text-[10px] uppercase tracking-wider text-txt-disabled">
+            Plano: {(subscriptionPlan || 'free').toUpperCase()}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={pantryInput}
+            onChange={(e) => setPantryInput(e.target.value)}
+            className="flex-1 gymie-input"
+            placeholder="Ex: ovos, frango, arroz, banana"
+            disabled={!canUsePantryMemory || savingPantry}
+          />
+          <button
+            type="button"
+            onClick={addPantryItems}
+            disabled={!canUsePantryMemory || savingPantry || !pantryInput.trim()}
+            className="gymie-btn-secondary px-3 disabled:opacity-50"
+          >
+            {savingPantry ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          </button>
+        </div>
+        {!canUsePantryMemory && (
+          <p className="text-[11px] text-txt-disabled mt-2">
+            Esta opcao fica disponivel no plano Pro/Elite. Sem ela, a IA continua montando receitas pelo seu perfil.
+          </p>
+        )}
+        {loadingPantry ? (
+          <p className="text-[11px] text-txt-muted mt-3">Carregando itens salvos...</p>
+        ) : pantryItems.length === 0 ? (
+          <p className="text-[11px] text-txt-muted mt-3">
+            Nenhum alimento salvo. Isso e opcional: a IA ainda cria receitas personalizadas pelo seu perfil.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2 mt-3">
+            {pantryItems.map((item) => (
+              <span key={item.id} className="gymie-chip flex items-center gap-1.5">
+                {item.name}
+                <button
+                  type="button"
+                  onClick={() => deletePantryItem(item.id)}
+                  className="text-txt-muted hover:text-danger transition-colors"
+                  title="Remover item"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Meals List */}
       {meals.length === 0 ? (
         <div className="text-center py-16">
@@ -352,7 +515,7 @@ export default function MealsPage() {
       ) : (
         <div className="space-y-3">
           {meals.map((meal) => {
-            const mealType = MEAL_TYPES.find(t => t.id === meal.meal_type);
+            const mealType = MEAL_TYPES_SAFE.find(t => t.id === meal.meal_type);
             return (
               <div 
                 key={meal.id} 
@@ -474,7 +637,7 @@ export default function MealsPage() {
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <button onClick={startCamera} className="gymie-btn-ghost flex items-center justify-center gap-2">
+                          <button onClick={startCamera} disabled={!canUseAiMealVision} className="gymie-btn-ghost flex items-center justify-center gap-2 disabled:opacity-50">
                             <Camera size={14} />
                             Nova captura
                           </button>
@@ -486,6 +649,7 @@ export default function MealsPage() {
                               accept="image/*"
                               capture="environment"
                               className="hidden"
+                              disabled={!canUseAiMealVision}
                               onChange={(e) => onPickPhotoFile(e.target.files?.[0])}
                             />
                           </label>
@@ -495,6 +659,7 @@ export default function MealsPage() {
                       <div className="flex flex-col gap-2">
                         <button
                           onClick={startCamera}
+                          disabled={!canUseAiMealVision}
                           className="w-full gymie-btn-primary flex items-center justify-center gap-2"
                         >
                           <Camera size={16} />
@@ -508,6 +673,7 @@ export default function MealsPage() {
                             accept="image/*"
                             capture="environment"
                             className="hidden"
+                            disabled={!canUseAiMealVision}
                             onChange={(e) => onPickPhotoFile(e.target.files?.[0])}
                           />
                         </label>
@@ -523,13 +689,18 @@ export default function MealsPage() {
                   <button
                     data-testid="analyze-meal-btn"
                     onClick={handleAnalyze}
-                    disabled={(!form.description.trim() && !form.photo_url) || analyzing}
+                    disabled={(!form.description.trim() && !form.photo_url) || analyzing || !canUseAiMealVision}
                     className="w-full gymie-btn-secondary flex items-center justify-center gap-2 border-gymie/30 text-gymie"
                   >
                     {analyzing ? (
                       <>
                         <Loader2 size={16} className="animate-spin" />
                         {form.photo_url ? 'Analisando foto...' : 'Analisando...'}
+                      </>
+                    ) : !canUseAiMealVision ? (
+                      <>
+                        <Sparkles size={16} />
+                        Recurso Pro/Elite
                       </>
                     ) : (
                       <>
@@ -615,7 +786,7 @@ export default function MealsPage() {
                       Tipo de refeição
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      {MEAL_TYPES.map((t) => (
+                      {MEAL_TYPES_SAFE.map((t) => (
                         <button
                           key={t.id}
                           onClick={() => setForm({ ...form, meal_type: t.id })}
@@ -719,7 +890,7 @@ export default function MealsPage() {
                       Tipo de refeição
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      {MEAL_TYPES.map((t) => (
+                      {MEAL_TYPES_SAFE.map((t) => (
                         <button
                           key={t.id}
                           onClick={() => setForm({ ...form, meal_type: t.id })}

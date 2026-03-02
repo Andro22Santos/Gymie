@@ -15,6 +15,7 @@ import ProgressPage from './pages/ProgressPage';
 import SettingsPage from './pages/SettingsPage';
 import AchievementsPage from './pages/AchievementsPage';
 import ProfilePage from './pages/ProfilePage';
+import BillingPage from './pages/BillingPage';
 import BottomNav from './components/BottomNav';
 
 function PrivateRoute({ children }) {
@@ -85,6 +86,7 @@ function App() {
           <Route path="/progress" element={<PrivateRoute><AppLayout><ProgressPage /></AppLayout></PrivateRoute>} />
           <Route path="/achievements" element={<PrivateRoute><AppLayout><AchievementsPage /></AppLayout></PrivateRoute>} />
           <Route path="/settings" element={<PrivateRoute><AppLayout><SettingsPage /></AppLayout></PrivateRoute>} />
+          <Route path="/billing" element={<PrivateRoute><AppLayout><BillingPage /></AppLayout></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><AppLayout><ProfilePage /></AppLayout></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
