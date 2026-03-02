@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -13,6 +14,7 @@ import WorkoutPage from './pages/WorkoutPage';
 import ProgressPage from './pages/ProgressPage';
 import SettingsPage from './pages/SettingsPage';
 import AchievementsPage from './pages/AchievementsPage';
+import ProfilePage from './pages/ProfilePage';
 import BottomNav from './components/BottomNav';
 
 function PrivateRoute({ children }) {
@@ -43,8 +45,14 @@ function LoadingScreen() {
   return (
     <div className="min-h-screen bg-bg flex items-center justify-center">
       <div className="text-center">
-        <div className="w-12 h-12 border-2 border-tactical border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="font-heading text-xl uppercase tracking-wider text-tactical">Carregando...</p>
+        <div className="relative w-16 h-16 mx-auto mb-5">
+          <div className="absolute inset-0 rounded-full border-2 border-gymie/20" />
+          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-gymie animate-spin" />
+          <div className="absolute inset-3 rounded-full bg-gymie/10 flex items-center justify-center">
+            <span className="text-gymie text-lg font-bold font-heading">G</span>
+          </div>
+        </div>
+        <p className="font-heading text-sm uppercase tracking-[0.2em] text-gymie/70">Gymie</p>
       </div>
     </div>
   );
@@ -63,6 +71,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+      <ToastProvider>
         <Routes>
           <Route path="/login" element={<AuthRoute><LoginPage /></AuthRoute>} />
           <Route path="/signup" element={<AuthRoute><SignupPage /></AuthRoute>} />
@@ -76,8 +85,10 @@ function App() {
           <Route path="/progress" element={<PrivateRoute><AppLayout><ProgressPage /></AppLayout></PrivateRoute>} />
           <Route path="/achievements" element={<PrivateRoute><AppLayout><AchievementsPage /></AppLayout></PrivateRoute>} />
           <Route path="/settings" element={<PrivateRoute><AppLayout><SettingsPage /></AppLayout></PrivateRoute>} />
+          <Route path="/profile" element={<PrivateRoute><AppLayout><ProfilePage /></AppLayout></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
+      </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   );

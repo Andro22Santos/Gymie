@@ -62,8 +62,8 @@ input, textarea, select {
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 166, 35, 0); }
-  50% { box-shadow: 0 0 20px 4px rgba(245, 166, 35, 0.15); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 224, 75, 0); }
+  50% { box-shadow: 0 0 20px 4px rgba(0, 224, 75, 0.15); }
 }
 @keyframes shimmer {
   0% { background-position: -200% 0; }
@@ -125,6 +125,80 @@ input, textarea, select {
   .gymie-chip-active {
     @apply bg-gymie/15 border-gymie/40 text-gymie;
   }
+}
+
+/* ── Premium Animations ────────────────────────────────── */
+
+/* Confetti falling particles */
+@keyframes confettiFall {
+  0%   { transform: translateY(-20px) rotate(0deg);   opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translateY(105vh) rotate(600deg); opacity: 0; }
+}
+.animate-confetti-fall {
+  animation: confettiFall linear forwards;
+}
+
+/* Fire wobble for streak ≥ 3 */
+@keyframes fireWobble {
+  0%, 100% { transform: scale(1) rotate(-5deg); }
+  50%       { transform: scale(1.15) rotate(5deg); }
+}
+.animate-fire {
+  animation: fireWobble 0.55s ease-in-out infinite;
+  display: inline-block;
+  transform-origin: bottom center;
+}
+
+/* Water wave for hydration bar */
+@keyframes waterWave {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-water-wave {
+  background: linear-gradient(90deg, #38bdf8 0%, #0ea5e9 30%, #38bdf8 65%, #7dd3fc 100%);
+  background-size: 250% 100%;
+  animation: waterWave 3s ease-in-out infinite;
+}
+
+/* SVG ring progress animation */
+@keyframes ringFill {
+  from { stroke-dashoffset: 125.66; }
+}
+.animate-ring-fill {
+  animation: ringFill 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Workout session complete burst */
+@keyframes completeBurst {
+  0%   { transform: scale(0.8); opacity: 0; }
+  60%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+.animate-complete-burst {
+  animation: completeBurst 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes typingDot {
+  0%, 60%, 100% { transform: translateY(0);    opacity: 0.3; }
+  30%            { transform: translateY(-4px); opacity: 1;   }
+}
+.typing-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: typingDot 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Skeleton pulse (override default for better feel) */
+.skeleton {
+  background: linear-gradient(90deg, #1A1A1A 25%, #222222 50%, #1A1A1A 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
 }
 
 /* Safe area padding for mobile */

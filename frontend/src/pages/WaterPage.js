@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { Droplet, Trash2, Plus } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 export default function WaterPage() {
+  const toast = useToast();
   const [data, setData] = useState({ logs: [], total_ml: 0, goal_ml: 2500 });
   const [loading, setLoading] = useState(true);
 
@@ -20,21 +22,32 @@ export default function WaterPage() {
     try {
       await api.post('/api/water', { amount_ml: ml });
       fetchWater();
-    } catch (err) { console.error(err); }
+      toast(`+${ml}ml registrado! 💧`, 'success');
+    } catch (err) { console.error(err); toast('Erro ao registrar água', 'error'); }
   };
 
   const deleteWater = async (id) => {
     try {
       await api.delete(`/api/water/${id}`);
       fetchWater();
+      toast('Registro removido', 'info');
     } catch (err) { console.error(err); }
   };
 
   const pct = data.goal_ml > 0 ? Math.min((data.total_ml / data.goal_ml) * 100, 100) : 0;
 
   if (loading) return (
-    <div className="flex items-center justify-center h-[60vh]">
-      <div className="w-10 h-10 border-2 border-info border-t-transparent rounded-full animate-spin" />
+    <div className="px-4 pt-6 pb-4 space-y-6 max-w-md mx-auto">
+      <div className="space-y-1">
+        <div className="skeleton h-7 w-36" />
+        <div className="skeleton h-4 w-24" />
+      </div>
+      <div className="flex justify-center py-6">
+        <div className="skeleton w-40 h-40 rounded-full" />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {[0,1,2,3].map(i => <div key={i} className="skeleton h-16" />)}
+      </div>
     </div>
   );
 

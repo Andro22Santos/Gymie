@@ -9,6 +9,7 @@ Architecture:
 """
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -45,13 +46,17 @@ REGRAS DE SEGURANCA (OBRIGATORIO):
 """
 
 
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openai")
+LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
+
+
 # ── Agent Definitions ────────────────────────────────────────
 
 AGENTS = {
     "companion": {
-        "name": "Companheiro",
+        "name": "Gymie",
         "code": "COMP",
-        "color": "#D4FF00",
+        "color": "#00E04B",
         "expertise": "Conversa geral, motivacao, rotina do dia, check-ins, humor, suporte emocional",
         "system_prompt": """Voce e o Agente Companheiro do Shape Inexplicavel.
 
@@ -338,7 +343,7 @@ INSTRUCOES FINAIS:
         session_id=f"shape-{thread_id}-{agent_id}-{persona_style}",
         system_message=system_message,
     )
-    chat.with_model("openai", "gpt-5.2")
+    chat.with_model(LLM_PROVIDER, LLM_MODEL)
 
     msg = UserMessage(text=user_message)
     response = await chat.send_message(msg)
@@ -379,6 +384,7 @@ INSTRUCOES FINAIS:
 async def analyze_meal_photo(
     api_key: str,
     description: str,
+    photo_base64: str = None,
     persona_style: str = "tactical",
 ) -> dict:
     """Specialized agent for analyzing meal descriptions/photos and estimating macros."""
@@ -399,9 +405,12 @@ Responda em portugues brasileiro. Seja breve na explicacao (1-2 frases) e precis
         session_id=f"shape-photo-{uuid.uuid4().hex[:8]}",
         system_message=system_message,
     )
-    chat.with_model("openai", "gpt-5.2")
+    chat.with_model(LLM_PROVIDER, LLM_MODEL)
 
-    msg = UserMessage(text=f"Analise esta refeicao e estime os macronutrientes: {description}")
+    prompt_text = f"Analise esta refeicao e estime os macronutrientes: {description}"
+    if photo_base64:
+        prompt_text += "\nFoto anexada pelo usuario (base64): [imagem fornecida]"
+    msg = UserMessage(text=prompt_text)
     response = await chat.send_message(msg)
 
     # Try to extract JSON from response

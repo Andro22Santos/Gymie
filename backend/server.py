@@ -29,6 +29,21 @@ MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET")
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_ENV = (os.environ.get("APP_ENV") or "development").strip().lower()
+
+
+def parse_cors_origins() -> List[str]:
+    raw = os.environ.get("CORS_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if origins:
+        return origins
+    if APP_ENV == "production":
+        # Placeholder explícito para evitar wildcard em produção.
+        return ["https://seu-frontend.emergent.sh"]
+    return ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+CORS_ORIGINS = parse_cors_origins()
 
 # Rate limiting setup
 limiter = Limiter(key_func=get_remote_address)
@@ -62,7 +77,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -175,8 +190,10 @@ class CheckinCreate(BaseModel):
     notes: Optional[str] = None
 
 class ChatMessageCreate(BaseModel):
-    content: str
+    content: Optional[str] = ""
     mode: Optional[str] = "companion"
+    image_base64: Optional[str] = None
+    audio_base64: Optional[str] = None
 
 class ReminderAction(BaseModel):
     action: str  # completed, snoozed, skipped
@@ -842,6 +859,13 @@ async def get_messages(thread_id: str, user=Depends(get_current_user)):
 async def send_message(request: Request, thread_id: str, req: ChatMessageCreate, user=Depends(get_current_user)):
     db = get_db()
     uid = user["user_id"]
+    content = (req.content or "").strip()
+    mode = req.mode or "companion"
+    has_image = bool(req.image_base64)
+    has_audio = bool(req.audio_base64)
+
+    if not content and not has_image and not has_audio:
+        raise HTTPException(status_code=400, detail="Mensagem vazia")
 
     # Save user message
     user_msg = {
@@ -849,8 +873,10 @@ async def send_message(request: Request, thread_id: str, req: ChatMessageCreate,
         "thread_id": thread_id,
         "user_id": uid,
         "role": "user",
-        "content": req.content,
-        "mode": req.mode or "companion",
+        "content": content,
+        "mode": mode,
+        "image_base64": req.image_base64 if has_image else None,
+        "has_audio": has_audio,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.chat_messages.insert_one(user_msg)
@@ -897,13 +923,23 @@ async def send_message(request: Request, thread_id: str, req: ChatMessageCreate,
     }
 
     persona_style = profile.get("persona_style", "tactical") if profile else "tactical"
-    mode = req.mode or "companion"
+    ai_input = content
+    if has_image:
+        if ai_input:
+            ai_input += "\n\n[O usuario anexou uma imagem.]"
+        else:
+            ai_input = "O usuario anexou uma imagem e quer analise orientada ao contexto."
+    if has_audio:
+        if ai_input:
+            ai_input += "\n\n[O usuario tambem enviou audio.]"
+        else:
+            ai_input = "O usuario enviou um audio sem transcricao. Peca um resumo curto em texto e ofereca ajuda."
 
     # Route through multi-agent orchestrator
     try:
         ai_result = await orchestrate_response(
             api_key=EMERGENT_LLM_KEY,
-            user_message=req.content,
+            user_message=ai_input,
             context=context,
             persona_style=persona_style,
             mode=mode,
@@ -920,7 +956,7 @@ async def send_message(request: Request, thread_id: str, req: ChatMessageCreate,
         }
     except Exception as e:
         ai_text = "Sistema temporariamente indisponivel. Tente novamente em instantes."
-        agent_info = {"agent_id": "companion", "agent_name": "Companheiro", "agent_code": "COMP", "agent_color": "#D4FF00"}
+        agent_info = {"agent_id": "companion", "agent_name": "Gymie", "agent_code": "COMP", "agent_color": "#00E04B"}
         print(f"AI Error: {e}")
 
     # Save AI message with agent metadata
@@ -1137,11 +1173,17 @@ async def get_progress_summary(user=Depends(get_current_user)):
     uid = user["user_id"]
     now = datetime.now(timezone.utc)
     week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    month_ago = (now - timedelta(days=30)).strftime("%Y-%m-%d")
     today = today_str()
+
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+    cal_target = profile.get("calorie_target", 2000) if profile else 2000
+    prot_target = profile.get("protein_target", 150) if profile else 150
+    water_goal = profile.get("water_goal_ml", 2500) if profile else 2500
 
     # Weight trend
     metrics = await db.body_metrics.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(30)
-    latest_weight = metrics[0]["weight"] if metrics else None
+    current_weight = metrics[0]["weight"] if metrics else None
     weight_change = None
     if len(metrics) >= 2:
         weight_change = round(metrics[0]["weight"] - metrics[-1]["weight"], 1)
@@ -1150,7 +1192,23 @@ async def get_progress_summary(user=Depends(get_current_user)):
     week_sessions = await db.workout_sessions.find(
         {"user_id": uid, "date": {"$gte": week_ago}, "status": "completed"}, {"_id": 0}
     ).to_list(20)
-    workouts_this_week = len(week_sessions)
+
+    # Workouts last 30d
+    month_sessions = await db.workout_sessions.find(
+        {"user_id": uid, "date": {"$gte": month_ago}, "status": "completed"}, {"_id": 0}
+    ).to_list(50)
+    workout_count_30d = len(month_sessions)
+
+    # Workout frequency by day of week (Mon→Sun)
+    day_names = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+    day_counts = [0] * 7
+    for s in month_sessions:
+        try:
+            d = datetime.strptime(s.get("date", ""), "%Y-%m-%d")
+            day_counts[d.weekday() % 7 + 1 if d.weekday() < 6 else 0] += 1
+        except ValueError:
+            pass
+    workout_by_day = [{"day": day_names[i], "count": day_counts[i]} for i in [1, 2, 3, 4, 5, 6, 0]]
 
     # Water average (last 7 days)
     water_pipeline = [
@@ -1159,35 +1217,55 @@ async def get_progress_summary(user=Depends(get_current_user)):
     ]
     water_daily = await db.water_logs.aggregate(water_pipeline).to_list(7)
     avg_water = round(sum(d["total"] for d in water_daily) / max(len(water_daily), 1)) if water_daily else 0
+    water_adherence_pct = round((avg_water / water_goal) * 100) if water_goal > 0 else 0
 
-    # Meals consistency
-    meals_pipeline = [
-        {"$match": {"user_id": uid, "date": {"$gte": week_ago}}},
-        {"$group": {"_id": "$date", "count": {"$sum": 1}}},
-    ]
-    meals_daily = await db.meals.aggregate(meals_pipeline).to_list(7)
-    days_with_meals = len(meals_daily)
+    # Meals: avg weekly calories and protein
+    meals_week = await db.meals.find({"user_id": uid, "date": {"$gte": week_ago}}, {"_id": 0}).to_list(200)
+    meal_dates = {}
+    for m in meals_week:
+        d = m.get("date", "")
+        if d not in meal_dates:
+            meal_dates[d] = {"cal": 0, "prot": 0}
+        meal_dates[d]["cal"] += m.get("calories", 0)
+        meal_dates[d]["prot"] += m.get("protein", 0)
+    n_days = max(len(meal_dates), 1)
+    avg_weekly_calories = round(sum(v["cal"] for v in meal_dates.values()) / n_days)
+    avg_weekly_protein = round(sum(v["prot"] for v in meal_dates.values()) / n_days)
 
-    # Checkin consistency
-    checkins = await db.daily_checkins.find({"user_id": uid, "date": {"$gte": week_ago}}, {"_id": 0}).to_list(7)
-    checkin_days = len(checkins)
-    avg_energy = round(sum(c.get("energy_level", 0) for c in checkins) / max(len(checkins), 1), 1) if checkins else 0
-    avg_sleep = round(sum(c.get("sleep_quality", 0) for c in checkins) / max(len(checkins), 1), 1) if checkins else 0
+    # Checkin consistency (last 7 days → consistency_bar Mon→Sun)
+    checkins_week = await db.daily_checkins.find({"user_id": uid, "date": {"$gte": week_ago}}, {"_id": 0}).to_list(7)
+    checkin_dates = {c["date"] for c in checkins_week}
+    consistency_bar = []
+    for i in range(6, -1, -1):
+        d = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        consistency_bar.append(1 if d in checkin_dates else 0)
 
-    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+    # Checkin count last 30d
+    checkin_count_30d = await db.daily_checkins.count_documents({"user_id": uid, "date": {"$gte": month_ago}})
+
+    avg_energy = round(sum(c.get("energy_level", 0) for c in checkins_week) / max(len(checkins_week), 1), 1) if checkins_week else 0
+    avg_sleep = round(sum(c.get("sleep_quality", 0) for c in checkins_week) / max(len(checkins_week), 1), 1) if checkins_week else 0
 
     return {
-        "latest_weight": latest_weight,
+        # Frontend-expected field names
+        "current_weight": current_weight,
         "weight_change": weight_change,
         "goal_weight": profile.get("goal_weight") if profile else None,
-        "workouts_this_week": workouts_this_week,
-        "training_days_target": len(profile.get("training_days", [])) if profile else 4,
-        "avg_water_ml": avg_water,
-        "water_goal_ml": profile.get("water_goal_ml", 2500) if profile else 2500,
-        "days_with_meals": days_with_meals,
-        "checkin_days": checkin_days,
-        "avg_energy": avg_energy,
-        "avg_sleep": avg_sleep,
+        "weekly_stats": {
+            "workouts": len(week_sessions),
+            "avg_water_ml": avg_water,
+            "avg_sleep": avg_sleep,
+            "avg_energy": avg_energy,
+        },
+        "avg_weekly_calories": avg_weekly_calories,
+        "avg_weekly_protein": avg_weekly_protein,
+        "water_adherence_pct": water_adherence_pct,
+        "workout_count_30d": workout_count_30d,
+        "checkin_count_30d": checkin_count_30d,
+        "workout_by_day": workout_by_day,
+        "consistency_bar": consistency_bar,
+        "calorie_target": cal_target,
+        "protein_target": prot_target,
         "weight_history": [{"date": m["date"], "weight": m["weight"]} for m in reversed(metrics[:30])],
     }
 
@@ -1530,6 +1608,7 @@ async def analyze_meal(request: Request, req: MealAnalyzeRequest, user=Depends(g
         result = await analyze_meal_photo(
             api_key=EMERGENT_LLM_KEY,
             description=req.description,
+            photo_base64=req.photo_base64,
             persona_style=persona_style,
         )
         

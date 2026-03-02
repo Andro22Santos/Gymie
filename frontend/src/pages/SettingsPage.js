@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 import { Settings, User, LogOut, MessageSquare, Check, ChevronRight } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
+  const toast = useToast();
   const [persona, setPersona] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -18,7 +20,9 @@ export default function SettingsPage() {
       await api.put('/api/settings/persona', { persona_style: style });
       setPersona((prev) => ({ ...prev, persona_style: style }));
       await refreshUser();
-    } catch (err) { console.error(err); }
+      const name = persona?.available_styles?.find(s => s.id === style)?.name || style;
+      toast(`Tom "${name}" ativado!`, 'success');
+    } catch (err) { console.error(err); toast('Erro ao salvar configuração', 'error'); }
     setSaving(false);
   };
 

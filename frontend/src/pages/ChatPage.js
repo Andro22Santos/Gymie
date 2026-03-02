@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api';
-import { 
-  Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare, 
-  TrendingUp, Camera, Droplet, Target, Flame, ChevronDown,
-  Sparkles, Check, Clock
+import {
+  Send, Loader2, UtensilsCrossed, Dumbbell, MessageSquare,
+  TrendingUp, Camera, Droplet, Flame, ChevronDown,
+  Sparkles, Check, Plus, Volume2, VolumeX, Paperclip, Mic, MicOff, X,
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 function renderMarkdown(text) {
   if (!text) return '';
@@ -15,7 +16,7 @@ function renderMarkdown(text) {
 }
 
 const MODES = [
-  { id: 'companion', label: 'Gymie', icon: MessageSquare, color: '#F5A623', desc: 'Motivação e rotina' },
+  { id: 'companion', label: 'Gymie', icon: MessageSquare, color: '#00E04B', desc: 'Motivação e rotina' },
   { id: 'nutrition', label: 'Alimentação', icon: UtensilsCrossed, color: '#FB923C', desc: 'Refeições e macros' },
   { id: 'workout', label: 'Treino', icon: Dumbbell, color: '#A855F7', desc: 'Exercícios e carga' },
 ];
@@ -36,6 +37,7 @@ const QUICK_ACTIONS = [
 ];
 
 export default function ChatPage() {
+  const toast = useToast();
   const [threads, setThreads] = useState([]);
   const [activeThread, setActiveThread] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -45,8 +47,14 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [contextSummary, setContextSummary] = useState(null);
   const [showModeSelector, setShowModeSelector] = useState(false);
+  const [speakingId, setSpeakingId] = useState(null);
+  const [pendingImage, setPendingImage] = useState(null); // { base64, preview }
+  const [recording, setRecording] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -84,13 +92,75 @@ export default function ChatPage() {
     }
   }, [activeThread]);
 
-  const sendMessage = async (text) => {
-    if (!text.trim() || sending || !activeThread) return;
-    const msgText = text.trim();
+  const startNewThread = async () => {
+    try {
+      const newThread = await api.post('/api/chat/threads');
+      setThreads((prev) => [...prev, newThread.data]);
+      setActiveThread(newThread.data.id);
+      setMessages([]);
+      setInput('');
+      setShowModeSelector(false);
+      toast('Nova conversa iniciada', 'info');
+    } catch (err) { console.error(err); }
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPendingImage({ base64: ev.target.result, preview: ev.target.result });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          sendMessage('', null, ev.target.result);
+        };
+        reader.readAsDataURL(blob);
+        setRecording(false);
+        mediaRecorderRef.current = null;
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setRecording(true);
+    } catch {
+      toast('Microfone não disponível ou permissão negada', 'error');
+    }
+  };
+
+  const sendMessage = async (text, extraImageBase64 = null, extraAudioBase64 = null) => {
+    const imgB64 = extraImageBase64 || pendingImage?.base64 || null;
+    const hasContent = (text || '').trim() || imgB64 || extraAudioBase64;
+    if (!hasContent || sending || !activeThread) return;
+    const msgText = (text || '').trim();
     setInput('');
+    setPendingImage(null);
     setSending(true);
 
-    const tempUserMsg = { id: 'temp-user', role: 'user', content: msgText, created_at: new Date().toISOString() };
+    const displayContent = msgText || (extraAudioBase64 ? '🎤 Áudio' : imgB64 ? '📷 Imagem' : '');
+    const tempUserMsg = {
+      id: 'temp-user', role: 'user',
+      content: displayContent,
+      image_base64: imgB64,
+      has_audio: !!extraAudioBase64,
+      created_at: new Date().toISOString(),
+    };
     setMessages((prev) => [...prev, tempUserMsg]);
     setTimeout(scrollToBottom, 50);
 
@@ -98,6 +168,8 @@ export default function ChatPage() {
       const res = await api.post(`/api/chat/threads/${activeThread}/messages`, {
         content: msgText,
         mode,
+        image_base64: imgB64,
+        audio_base64: extraAudioBase64,
       });
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== 'temp-user'),
@@ -113,6 +185,7 @@ export default function ChatPage() {
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== 'temp-user'));
       console.error(err);
+      toast('Não foi possível enviar. Tente novamente.', 'error');
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -122,16 +195,48 @@ export default function ChatPage() {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(input);
+      sendMessage(input, null, null);
     }
+  };
+
+  const speak = (text, msgId) => {
+    if (!window.speechSynthesis) return;
+    if (speakingId === msgId) {
+      window.speechSynthesis.cancel();
+      setSpeakingId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const plain = text.replace(/<[^>]+>/g, '').replace(/\*+/g, '');
+    const utt = new SpeechSynthesisUtterance(plain);
+    utt.lang = 'pt-BR';
+    utt.rate = 1.05;
+    utt.onend = () => setSpeakingId(null);
+    utt.onerror = () => setSpeakingId(null);
+    setSpeakingId(msgId);
+    window.speechSynthesis.speak(utt);
   };
 
   const currentMode = MODES.find(m => m.id === mode) || MODES[0];
   const ModeIcon = currentMode.icon;
 
   if (loading) return (
-    <div className="flex items-center justify-center h-[60vh]">
-      <div className="w-8 h-8 border-2 border-gymie border-t-transparent rounded-full animate-spin" />
+    <div className="flex flex-col h-[calc(100vh-64px)] max-w-md mx-auto">
+      {/* Header skeleton */}
+      <div className="px-4 pt-3 pb-2 border-b border-border-subtle">
+        <div className="skeleton h-14 w-full rounded-gymie mb-0" />
+      </div>
+      {/* Messages skeleton */}
+      <div className="flex-1 overflow-hidden px-4 py-4 space-y-4">
+        <div className="flex justify-start"><div className="skeleton h-16 w-3/4 rounded-gymie rounded-bl-sm" /></div>
+        <div className="flex justify-end"><div className="skeleton h-10 w-1/2 rounded-gymie rounded-br-sm" /></div>
+        <div className="flex justify-start"><div className="skeleton h-24 w-4/5 rounded-gymie rounded-bl-sm" /></div>
+        <div className="flex justify-end"><div className="skeleton h-10 w-2/3 rounded-gymie rounded-br-sm" /></div>
+      </div>
+      {/* Input skeleton */}
+      <div className="px-4 pt-3 pb-4 border-t border-border-subtle">
+        <div className="skeleton h-12 w-full rounded-gymie-sm" />
+      </div>
     </div>
   );
 
@@ -157,31 +262,40 @@ export default function ChatPage() {
               <span className="text-[11px] font-data text-txt-secondary">{contextSummary.protein_pct}%</span>
             </div>
             <div className="flex-1" />
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {contextSummary.has_workout && <Dumbbell size={10} className="text-success" />}
               {contextSummary.has_checkin && <Check size={10} className="text-success" />}
+              <button
+                onClick={startNewThread}
+                className="flex items-center gap-1 text-[10px] text-txt-muted hover:text-txt-secondary transition-colors pl-1 border-l border-border-subtle"
+                title="Nova conversa"
+              >
+                <Plus size={11} /> Nova
+              </button>
             </div>
           </div>
         )}
 
-        {/* Mode Selector */}
-        <button 
+        {/* Mode Selector — destaque visual maior */}
+        <button
           onClick={() => setShowModeSelector(!showModeSelector)}
-          className="w-full flex items-center gap-3 p-2 rounded-gymie-sm hover:bg-surface-hl transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-gymie border transition-all"
+          style={{ borderColor: `${currentMode.color}40`, backgroundColor: `${currentMode.color}08` }}
         >
-          <div 
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: `${currentMode.color}15` }}
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: `${currentMode.color}20` }}
           >
-            <ModeIcon size={16} style={{ color: currentMode.color }} />
+            <ModeIcon size={18} style={{ color: currentMode.color }} />
           </div>
           <div className="flex-1 text-left">
-            <p className="text-sm font-semibold text-txt-primary">Modo: {currentMode.label}</p>
-            <p className="text-[10px] text-txt-muted">{currentMode.desc}</p>
+            <p className="text-xs text-txt-muted uppercase tracking-wider">Agente ativo</p>
+            <p className="text-sm font-bold" style={{ color: currentMode.color }}>{currentMode.label}</p>
           </div>
-          <ChevronDown 
-            size={18} 
-            className={`text-txt-muted transition-transform ${showModeSelector ? 'rotate-180' : ''}`} 
+          <ChevronDown
+            size={18}
+            className={`transition-transform`}
+            style={{ color: currentMode.color, transform: showModeSelector ? 'rotate(180deg)' : 'rotate(0deg)' }}
           />
         </button>
 
@@ -248,23 +362,56 @@ export default function ChatPage() {
           return (
             <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}>
               <div className="max-w-[85%]">
-                {/* AI badge */}
+                {/* AI avatar + name */}
                 {!isUser && (
-                  <div className="flex items-center gap-1.5 mb-1.5 ml-1">
-                    <AgentIcon size={10} style={{ color: agentColor }} />
-                    <span className="text-[10px] text-txt-muted">
-                      {msg.agent_name || 'Gymie'}
-                    </span>
+                  <div className="flex items-center gap-2 mb-1.5 ml-1">
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold"
+                      style={{ backgroundColor: `${agentColor}25`, color: agentColor, border: `1px solid ${agentColor}40` }}
+                    >
+                      G
+                    </div>
+                    <span className="text-[10px] text-txt-muted">{msg.agent_name || 'Gymie'}</span>
                   </div>
                 )}
                 <div className={isUser ? 'msg-user' : 'msg-ai'} style={{ padding: '12px 16px' }}>
-                  <p 
-                    className="text-sm leading-relaxed text-txt-primary" 
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} 
-                  />
-                  <p className="text-[10px] text-txt-muted mt-2 font-data">
-                    {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+                  {/* Image attachment */}
+                  {msg.image_base64 && (
+                    <img
+                      src={msg.image_base64}
+                      alt="imagem"
+                      className="w-full max-w-[200px] rounded-gymie-sm mb-2 object-cover block"
+                    />
+                  )}
+                  {/* Audio indicator */}
+                  {msg.has_audio && (
+                    <div className="flex items-center gap-2 mb-2 py-1.5 px-2.5 bg-black/20 rounded-gymie-sm w-fit">
+                      <Mic size={12} className="text-gymie" />
+                      <span className="text-[11px] text-txt-secondary">Áudio</span>
+                    </div>
+                  )}
+                  {msg.content && (
+                    <p
+                      className="text-sm leading-relaxed text-txt-primary"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                    />
+                  )}
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-[10px] text-txt-muted font-data">
+                      {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    {!isUser && window.speechSynthesis && (
+                      <button
+                        onClick={() => speak(msg.content, msg.id)}
+                        className="flex items-center gap-1 text-[10px] text-txt-muted hover:text-txt-secondary transition-colors"
+                        title={speakingId === msg.id ? 'Parar' : 'Ouvir'}
+                      >
+                        {speakingId === msg.id
+                          ? <VolumeX size={12} className="text-gymie" />
+                          : <Volume2 size={12} />}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -273,56 +420,115 @@ export default function ChatPage() {
 
         {sending && (
           <div className="flex justify-start animate-fade-in">
-            <div className="msg-ai px-4 py-3 flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin" style={{ color: currentMode.color }} />
-              <span className="text-xs text-txt-muted">Pensando...</span>
+            <div className="max-w-[85%]">
+              <div className="flex items-center gap-2 mb-1.5 ml-1">
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold"
+                  style={{ backgroundColor: `${currentMode.color}25`, color: currentMode.color, border: `1px solid ${currentMode.color}40` }}
+                >
+                  G
+                </div>
+                <span className="text-[10px] text-txt-muted">{currentMode.label} está digitando...</span>
+              </div>
+              <div className="msg-ai px-4 py-3.5">
+                <div className="flex items-center gap-1" style={{ color: '#525252' }}>
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                </div>
+              </div>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Actions */}
-      {messages.length === 0 && (
-        <div className="px-4 pb-2">
-          <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
-            {QUICK_ACTIONS.map((a, idx) => (
-              <button
-                key={idx}
-                onClick={() => sendMessage(a.label)}
-                className="gymie-chip whitespace-nowrap touch-feedback"
-              >
-                <a.icon size={12} className="text-gymie" />
-                <span className="text-txt-secondary">{a.label}</span>
-              </button>
-            ))}
+      {/* Input — área maior, bem separada do nav */}
+      <div className="px-4 pt-3 pb-4 bg-bg/98 backdrop-blur-lg border-t border-border-subtle">
+        {/* Quick Actions — visível sempre que o input estiver vazio */}
+        {!input.trim() && !pendingImage && !recording && (
+          <div className="relative mb-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {QUICK_ACTIONS.map((a, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => sendMessage(a.label)}
+                  className="gymie-chip whitespace-nowrap touch-feedback flex-shrink-0"
+                >
+                  <a.icon size={12} className="text-gymie" />
+                  <span className="text-txt-secondary">{a.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-bg to-transparent pointer-events-none" />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Input */}
-      <div className="px-4 py-3 bg-bg/95 backdrop-blur-lg border-t border-border-subtle pb-safe">
+        {/* Pending image preview */}
+        {pendingImage && (
+          <div className="flex items-center gap-3 mb-2 p-2 bg-surface rounded-gymie-sm border border-border-subtle animate-fade-in">
+            <img src={pendingImage.preview} alt="preview" className="w-12 h-12 rounded-gymie-sm object-cover flex-shrink-0" />
+            <p className="text-xs text-txt-secondary flex-1">Imagem pronta para enviar</p>
+            <button onClick={() => setPendingImage(null)} className="p-1 hover:bg-surface-hl rounded-full">
+              <X size={14} className="text-txt-muted" />
+            </button>
+          </div>
+        )}
+
+        {/* Recording indicator */}
+        {recording && (
+          <div className="flex items-center gap-2 mb-2 p-2.5 bg-danger/5 rounded-gymie-sm border border-danger/20 animate-fade-in">
+            <span className="w-2 h-2 rounded-full bg-danger animate-pulse flex-shrink-0" />
+            <p className="text-xs text-danger flex-1">Gravando… toque no microfone para parar</p>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
+          {/* Image attach */}
+          <input ref={imageInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
+          <button
+            onClick={() => imageInputRef.current?.click()}
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-surface-hl hover:bg-surface-elevated transition-colors"
+            title="Anexar imagem"
+          >
+            <Paperclip size={16} className="text-txt-muted" />
+          </button>
+
+          {/* Mic */}
+          <button
+            onClick={toggleRecording}
+            className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${recording ? 'bg-danger/15 text-danger animate-pulse' : 'bg-surface-hl hover:bg-surface-elevated text-txt-muted'}`}
+            title={recording ? 'Parar gravação' : 'Gravar áudio'}
+          >
+            {recording ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+
           <textarea
             ref={inputRef}
             data-testid="chat-input"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            }}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Digite sua mensagem..."
-            className="flex-1 gymie-input resize-none text-sm"
-            style={{ minHeight: '44px', maxHeight: '120px' }}
+            placeholder={pendingImage ? 'Adicionar legenda (opcional)…' : 'Digite sua mensagem…'}
+            className="flex-1 gymie-input resize-none text-sm leading-relaxed"
+            style={{ minHeight: '48px', maxHeight: '120px', overflowY: 'auto' }}
           />
           <button
             data-testid="chat-send"
-            onClick={() => sendMessage(input)}
-            disabled={!input.trim() || sending}
-            className="gymie-btn-primary p-3 disabled:opacity-40"
+            onClick={() => sendMessage(input, null, null)}
+            disabled={(!input.trim() && !pendingImage) || sending || recording}
+            className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40"
+            style={{ backgroundColor: (input.trim() || pendingImage) ? currentMode.color : '#1A1A1A', color: (input.trim() || pendingImage) ? '#000' : '#525252' }}
           >
-            <Send size={18} />
+            {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
         </div>
+        <p className="text-[10px] text-txt-disabled mt-1.5 text-center">Enter envia · 📎 Imagem · 🎤 Áudio</p>
       </div>
     </div>
   );

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { 
-  UtensilsCrossed, Plus, X, Trash2, Clock, Camera, Loader2, 
-  Sparkles, Check, AlertCircle, ChevronDown, ChevronUp, Edit3, RefreshCw
+  UtensilsCrossed, Plus, X, Trash2, Camera, Loader2, 
+  Sparkles, Check, ChevronDown, ChevronUp, Edit3, RefreshCw
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: 'Café', emoji: '☀️' },
@@ -15,6 +16,9 @@ const MEAL_TYPES = [
 ];
 
 export default function MealsPage() {
+  const toast = useToast();
+  const videoRef = React.useRef(null);
+  const streamRef = React.useRef(null);
   const [meals, setMeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -32,6 +36,11 @@ export default function MealsPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [capturingPhoto, setCapturingPhoto] = useState(false);
+  const [savingInsight, setSavingInsight] = useState(false);
+  const [insightSaved, setInsightSaved] = useState(false);
 
   const fetchMeals = useCallback(async () => {
     try {
@@ -43,14 +52,115 @@ export default function MealsPage() {
 
   useEffect(() => { fetchMeals(); }, [fetchMeals]);
 
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraOpen(false);
+  }, []);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
+
+  useEffect(() => {
+    if (!modalOpen || step !== 1) {
+      stopCamera();
+    }
+  }, [modalOpen, step, stopCamera]);
+
+  const startCamera = async () => {
+    setCameraError('');
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError('Seu navegador não suporta câmera em tempo real.');
+      toast('Câmera em tempo real não suportada neste dispositivo', 'error');
+      return;
+    }
+    try {
+      stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+      requestAnimationFrame(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      setCameraError('Não foi possível acessar a câmera. Verifique a permissão.');
+      toast('Permita acesso à câmera para capturar a refeição', 'error');
+    }
+  };
+
+  const onPickPhotoFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result;
+      if (!dataUrl) return;
+      setForm((prev) => ({
+        ...prev,
+        photo_url: dataUrl,
+        description: prev.description.trim() ? prev.description : 'Foto de refeição',
+      }));
+      setInsightSaved(false);
+      setCameraError('');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const captureFromCamera = () => {
+    if (!videoRef.current) return;
+    setCapturingPhoto(true);
+    try {
+      const video = videoRef.current;
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas context unavailable');
+      ctx.drawImage(video, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setForm((prev) => ({
+        ...prev,
+        photo_url: dataUrl,
+        description: prev.description.trim() ? prev.description : 'Foto de refeição',
+      }));
+      setInsightSaved(false);
+      stopCamera();
+      toast('Foto capturada em tempo real', 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Não foi possível capturar a foto', 'error');
+    } finally {
+      setCapturingPhoto(false);
+    }
+  };
+
   const handleAnalyze = async () => {
-    if (!form.description.trim()) return;
+    if (!form.description.trim() && !form.photo_url) return;
+    const descToSend = form.description.trim() || (form.photo_url ? 'Foto de refeição' : '');
+    if (!form.description.trim()) {
+      setForm((prev) => ({ ...prev, description: descToSend }));
+    }
     setAnalyzing(true);
+    setInsightSaved(false);
     setAnalysisResult(null);
     
     try {
       const res = await api.post('/api/meals/analyze', {
-        description: form.description,
+        description: descToSend,
         photo_base64: form.photo_url || null,
       });
       
@@ -83,8 +193,46 @@ export default function MealsPage() {
         success: false,
         text: 'Erro ao analisar. Tente novamente.',
       });
+      toast('Não foi possível analisar a refeição', 'error');
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const recognizedItems = React.useMemo(() => {
+    const source = (analysisResult?.macros?.description || form.description || '')
+      .replace(/[.;]/g, ',')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!source) return [];
+
+    const tokens = source
+      .split(/,| com | e /gi)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 3)
+      .filter((item) => !/^foto de refeição$/i.test(item));
+
+    return [...new Set(tokens)].slice(0, 6);
+  }, [analysisResult, form.description]);
+
+  const saveAnalysisToProfile = async () => {
+    if (!analysisResult?.success || savingInsight) return;
+    setSavingInsight(true);
+    try {
+      const items = recognizedItems.length ? recognizedItems.join(', ') : (form.description || 'refeição');
+      const today = new Date().toLocaleDateString('pt-BR');
+      const fact = `Em ${today}, refeição identificada: ${items}. Estimativa: ${form.calories} kcal, ${form.protein}g proteína, ${form.carbs}g carboidratos e ${form.fat}g gorduras.`;
+      await api.post('/api/memory/facts', {
+        category: 'nutrition',
+        fact,
+      });
+      setInsightSaved(true);
+      toast('Perfil alimentar atualizado para personalização da IA', 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Não foi possível salvar no perfil agora', 'error');
+    } finally {
+      setSavingInsight(false);
     }
   };
 
@@ -99,31 +247,46 @@ export default function MealsPage() {
         fat: parseFloat(form.fat) || 0,
         photo_url: form.photo_url || null,
       });
+      toast('Refeição registrada!', 'success');
       closeModal();
       fetchMeals();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao salvar refeição', 'error');
+    }
   };
 
   const handleDelete = async (id) => {
     try {
       await api.delete(`/api/meals/${id}`);
       fetchMeals();
-    } catch (err) { console.error(err); }
+      toast('Refeição removida', 'info');
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao remover refeição', 'error');
+    }
   };
 
   const openModal = () => {
-    setForm({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: '', photo_url: '' });
+    const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    setForm({ description: '', meal_type: 'snack', calories: '', protein: '', carbs: '', fat: '', time: currentTime, photo_url: '' });
     setAnalysisResult(null);
     setStep(1);
     setShowDetails(false);
+    setInsightSaved(false);
+    setCameraError('');
     setModalOpen(true);
   };
 
   const closeModal = () => {
+    stopCamera();
     setModalOpen(false);
     setStep(1);
     setAnalysisResult(null);
     setShowDetails(false);
+    setInsightSaved(false);
+    setCameraError('');
   };
 
   const totalCal = meals.reduce((s, m) => s + (m.calories || 0), 0);
@@ -266,48 +429,112 @@ export default function MealsPage() {
 
                   {/* Photo (optional) */}
                   <div>
-                    <label className="flex items-center gap-3 p-3 gymie-card cursor-pointer hover:border-border-hover transition-colors">
-                      <Camera size={18} className="text-txt-muted" />
-                      <span className="text-sm text-txt-secondary flex-1">
-                        {form.photo_url ? 'Foto adicionada' : 'Adicionar foto (opcional)'}
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (ev) => setForm({ ...form, photo_url: ev.target.result });
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                      />
-                      {form.photo_url && (
-                        <div className="w-10 h-10 rounded-gymie-sm overflow-hidden">
-                          <img src={form.photo_url} alt="" className="w-full h-full object-cover" />
+                    {cameraOpen ? (
+                      <div className="space-y-3">
+                        <div className="relative rounded-gymie overflow-hidden bg-black">
+                          <video ref={videoRef} autoPlay playsInline muted className="w-full h-52 object-cover" />
+                          <div className="absolute left-2 top-2 bg-black/60 rounded-gymie-sm px-2 py-1">
+                            <span className="text-[10px] text-white">Câmera em tempo real</span>
+                          </div>
                         </div>
-                      )}
-                    </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={captureFromCamera}
+                            disabled={capturingPhoto}
+                            className="gymie-btn-primary flex items-center justify-center gap-2 disabled:opacity-60"
+                          >
+                            {capturingPhoto ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                            Capturar
+                          </button>
+                          <button
+                            onClick={stopCamera}
+                            className="gymie-btn-ghost flex items-center justify-center gap-2"
+                          >
+                            <X size={16} />
+                            Fechar
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-txt-muted text-center">
+                          Enquadre o prato e capture para a IA estimar calorias e macros.
+                        </p>
+                      </div>
+                    ) : form.photo_url ? (
+                      <div className="space-y-2">
+                        <div className="relative rounded-gymie overflow-hidden">
+                          <img src={form.photo_url} alt="Foto da refeição" className="w-full h-44 object-cover" />
+                          <button
+                            onClick={() => setForm((prev) => ({ ...prev, photo_url: '' }))}
+                            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center"
+                          >
+                            <X size={14} className="text-white" />
+                          </button>
+                          <div className="absolute bottom-2 left-2 bg-black/60 rounded-gymie-sm px-2 py-1 flex items-center gap-1">
+                            <Sparkles size={10} className="text-gymie" />
+                            <span className="text-[10px] text-white">IA vai analisar a foto</span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={startCamera} className="gymie-btn-ghost flex items-center justify-center gap-2">
+                            <Camera size={14} />
+                            Nova captura
+                          </button>
+                          <label className="gymie-btn-ghost flex items-center justify-center gap-2 cursor-pointer">
+                            <Camera size={14} />
+                            Trocar foto
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              className="hidden"
+                              onChange={(e) => onPickPhotoFile(e.target.files?.[0])}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={startCamera}
+                          className="w-full gymie-btn-primary flex items-center justify-center gap-2"
+                        >
+                          <Camera size={16} />
+                          Abrir câmera em tempo real
+                        </button>
+                        <label className="flex items-center gap-3 p-3 gymie-card cursor-pointer hover:border-border-hover transition-colors border-dashed">
+                          <Camera size={18} className="text-txt-muted" />
+                          <span className="text-sm text-txt-secondary flex-1">Escolher foto da galeria</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            className="hidden"
+                            onChange={(e) => onPickPhotoFile(e.target.files?.[0])}
+                          />
+                        </label>
+                        <p className="text-[10px] text-txt-muted text-center">
+                          A IA reconhece o alimento na foto e estima calorias/macros automaticamente.
+                        </p>
+                      </div>
+                    )}
+                    {cameraError && <p className="text-[11px] text-danger mt-2 text-center">{cameraError}</p>}
                   </div>
 
                   {/* Analyze Button */}
                   <button
                     data-testid="analyze-meal-btn"
                     onClick={handleAnalyze}
-                    disabled={!form.description.trim() || analyzing}
+                    disabled={(!form.description.trim() && !form.photo_url) || analyzing}
                     className="w-full gymie-btn-secondary flex items-center justify-center gap-2 border-gymie/30 text-gymie"
                   >
                     {analyzing ? (
                       <>
                         <Loader2 size={16} className="animate-spin" />
-                        Analisando...
+                        {form.photo_url ? 'Analisando foto...' : 'Analisando...'}
                       </>
                     ) : (
                       <>
                         <Sparkles size={16} />
-                        Estimar macros com IA
+                        {form.photo_url ? 'Analisar foto com IA' : 'Estimar macros com IA'}
                       </>
                     )}
                   </button>
@@ -358,6 +585,28 @@ export default function MealsPage() {
                         }
                       </p>
                     )}
+                  </div>
+
+                  <div className="gymie-card p-3">
+                    <p className="text-xs font-medium text-txt-muted uppercase tracking-wider mb-2">
+                      Reconhecimento da IA
+                    </p>
+                    {recognizedItems.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {recognizedItems.map((item) => (
+                          <span key={item} className="gymie-chip">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-txt-secondary mb-2">
+                        A IA usou descrição e imagem para estimar os valores nutricionais.
+                      </p>
+                    )}
+                    <p className="text-[11px] text-txt-muted">
+                      Salve no perfil para a IA personalizar seus próximos planos e recomendações automaticamente.
+                    </p>
                   </div>
 
                   {/* Meal Type Selector */}
@@ -416,23 +665,35 @@ export default function MealsPage() {
                     </div>
                   )}
 
-                  {/* Action Buttons */}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => { setStep(1); setAnalysisResult(null); }}
-                      className="gymie-btn-ghost flex-1 flex items-center justify-center gap-2"
-                    >
-                      <RefreshCw size={14} />
-                      Refazer
-                    </button>
-                    <button
-                      data-testid="meal-submit"
-                      onClick={handleSubmit}
-                      className="gymie-btn-primary flex-[2] flex items-center justify-center gap-2"
-                    >
-                      <Check size={16} />
-                      Registrar
-                    </button>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => { setStep(1); setAnalysisResult(null); }}
+                        className="gymie-btn-ghost flex items-center justify-center gap-2"
+                      >
+                        <RefreshCw size={14} />
+                        Refazer
+                      </button>
+                      <button
+                        onClick={saveAnalysisToProfile}
+                        disabled={savingInsight || insightSaved}
+                        className="gymie-btn-secondary flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        {savingInsight ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                        {insightSaved ? 'Perfil OK' : 'Salvar perfil'}
+                      </button>
+                      <button
+                        data-testid="meal-submit"
+                        onClick={handleSubmit}
+                        className="gymie-btn-primary flex items-center justify-center gap-2"
+                      >
+                        <Check size={16} />
+                        Registrar
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-txt-muted text-center">
+                      A IA usa o histórico alimentar salvo no perfil para ajustar planos e sugestões automaticamente.
+                    </p>
                   </div>
                 </>
               )}
@@ -522,3 +783,4 @@ export default function MealsPage() {
     </div>
   );
 }
+

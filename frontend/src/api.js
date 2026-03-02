@@ -1,10 +1,13 @@
 import axios from 'axios';
+import mockAdapter from './mocks/adapter';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL || '';
+const USE_MOCK = process.env.REACT_APP_USE_MOCK === 'true';
+const API_URL  = process.env.REACT_APP_BACKEND_URL || '';
 
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  ...(USE_MOCK ? { adapter: mockAdapter } : {}),
 });
 
 api.interceptors.request.use((config) => {

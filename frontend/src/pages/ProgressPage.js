@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { TrendingDown, TrendingUp, Minus, Dumbbell, Droplet, UtensilsCrossed, Moon, Scale, X, FileText, Loader2, Brain, Trash2, Plus, Sparkles } from 'lucide-react';
-import { XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart } from 'recharts';
+import { XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, BarChart, Bar, Cell } from 'recharts';
+import { useToast } from '../context/ToastContext';
 
 export default function ProgressPage() {
+  const toast = useToast();
   const [summary, setSummary] = useState(null);
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [facts, setFacts] = useState([]);
@@ -39,7 +41,8 @@ export default function ProgressPage() {
       setShowWeightModal(false);
       setWeightInput('');
       fetchData();
-    } catch (err) { console.error(err); }
+      toast('Peso registrado com sucesso!', 'success');
+    } catch (err) { console.error(err); toast('Erro ao registrar peso', 'error'); }
   };
 
   const generateWeeklySummary = async () => {
@@ -47,7 +50,8 @@ export default function ProgressPage() {
     try {
       const res = await api.post('/api/progress/weekly-summary');
       setWeeklySummary(res.data);
-    } catch (err) { console.error(err); }
+      toast('Resumo semanal gerado!', 'success');
+    } catch (err) { console.error(err); toast('Erro ao gerar resumo', 'error'); }
     setGeneratingSummary(false);
   };
 
@@ -57,19 +61,39 @@ export default function ProgressPage() {
       await api.post('/api/memory/facts', { fact: newFact, category: factCategory });
       setNewFact('');
       fetchData();
-    } catch (err) { console.error(err); }
+      toast('Informação salva na memória do Gymie!', 'success');
+    } catch (err) { console.error(err); toast('Erro ao salvar informação', 'error'); }
   };
 
   const deleteFact = async (id) => {
     try {
       await api.delete(`/api/memory/facts/${id}`);
       fetchData();
+      toast('Informação removida', 'info');
     } catch (err) { console.error(err); }
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-[60vh]">
-      <div className="w-8 h-8 border-2 border-gymie border-t-transparent rounded-full animate-spin" />
+    <div className="px-4 pt-5 pb-24 max-w-md mx-auto space-y-4">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="space-y-2">
+          <div className="skeleton h-7 w-32" />
+          <div className="skeleton h-4 w-20" />
+        </div>
+        <div className="flex gap-2">
+          <div className="skeleton w-10 h-10 rounded-gymie-sm" />
+          <div className="skeleton w-10 h-10 rounded-gymie-sm" />
+        </div>
+      </div>
+      {/* Weekly summary skeleton */}
+      <div className="skeleton h-36 w-full rounded-gymie" />
+      {/* Stats grid skeleton */}
+      <div className="grid grid-cols-2 gap-3">
+        {[0,1,2,3].map(i => <div key={i} className="skeleton h-24 rounded-gymie" />)}
+      </div>
+      {/* Chart skeleton */}
+      <div className="skeleton h-48 w-full rounded-gymie" />
     </div>
   );
 
@@ -243,15 +267,89 @@ export default function ProgressPage() {
               <AreaChart data={weightData} margin={{ top: 5, right: 5, bottom: 0, left: -25 }}>
                 <defs>
                   <linearGradient id="weightGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#F5A623" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#00E04B" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#00E04B" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="label" tick={{ fill: '#525252', fontSize: 10 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fill: '#525252', fontSize: 10 }} tickLine={false} axisLine={false} domain={['dataMin - 1', 'dataMax + 1']} />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="weight" stroke="#F5A623" strokeWidth={2} fill="url(#weightGrad)" />
+                <Area type="monotone" dataKey="weight" stroke="#00E04B" strokeWidth={2} fill="url(#weightGrad)" />
               </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Nutrição semanal média */}
+      <div className="gymie-card p-5 mt-5 animate-slide-up stagger-2">
+        <div className="flex items-center gap-2 mb-4">
+          <UtensilsCrossed size={14} className="text-orange-400" />
+          <span className="text-sm font-semibold text-txt-primary">Nutrição — média semanal</span>
+        </div>
+        <div className="space-y-3">
+          {[
+            { label: 'Calorias', val: s.avg_weekly_calories || 0, target: s.calorie_target || 2800, unit: 'kcal', color: '#00E04B' },
+            { label: 'Proteína', val: s.avg_weekly_protein || 0,  target: s.protein_target || 150,   unit: 'g',    color: '#F97316' },
+            { label: 'Hidratação', val: s.water_adherence_pct || 0, target: 100, unit: '%', color: '#38BDF8' },
+          ].map((m) => {
+            const pct = Math.min((m.val / m.target) * 100, 100);
+            return (
+              <div key={m.label}>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs text-txt-secondary">{m.label}</span>
+                  <span className="text-xs font-data" style={{ color: m.color }}>
+                    {m.val}<span className="text-txt-muted text-[10px]"> / {m.target}{m.unit}</span>
+                    <span className="text-txt-muted text-[10px] ml-1">({Math.round(pct)}%)</span>
+                  </span>
+                </div>
+                <div className="h-2 bg-surface-hl rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${pct}%`, backgroundColor: m.color }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <span className="gymie-chip bg-purple-400/10 text-purple-400 border-purple-400/20 text-[10px]">
+            <Dumbbell size={9} /> {s.workout_count_30d || 0} treinos/mês
+          </span>
+          <span className="gymie-chip bg-gymie/10 text-gymie border-gymie/20 text-[10px]">
+            {s.checkin_count_30d || 0} check-ins/mês
+          </span>
+        </div>
+      </div>
+
+      {/* Workout Frequency by Day */}
+      {(s.workout_by_day || []).some((d) => d.count > 0) && (
+        <div className="gymie-card p-5 mt-5 animate-slide-up stagger-3">
+          <div className="flex items-center gap-2 mb-4">
+            <Dumbbell size={14} className="text-purple-400" />
+            <span className="text-sm font-semibold text-txt-primary">Frequência de treino</span>
+            <span className="text-[10px] text-txt-muted ml-auto">por dia da semana</span>
+          </div>
+          <div className="h-28">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={s.workout_by_day} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
+                <XAxis dataKey="day" tick={{ fill: '#525252', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: '#525252', fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip
+                  content={({ active, payload }) => active && payload?.length ? (
+                    <div className="bg-surface border border-border-default rounded-gymie-sm px-3 py-1.5">
+                      <p className="font-data text-sm text-purple-400">{payload[0].value} treino{payload[0].value !== 1 ? 's' : ''}</p>
+                      <p className="font-data text-[10px] text-txt-muted">{payload[0].payload.day}</p>
+                    </div>
+                  ) : null}
+                />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {(s.workout_by_day || []).map((entry, index) => (
+                    <Cell key={index} fill={entry.count > 0 ? '#A855F7' : '#2A2A2A'} fillOpacity={entry.count > 0 ? 0.8 : 1} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>

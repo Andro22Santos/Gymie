@@ -9,14 +9,14 @@ module.exports = {
         'surface-hl': '#1A1A1A',
         'surface-elevated': '#1F1F1F',
         
-        // Gymie brand - Amber/Gold accent
-        gymie: '#F5A623',
-        'gymie-dim': '#D4901F',
-        'gymie-glow': '#F5A62330',
-        
-        // Legacy tactical (keeping for compatibility)
-        tactical: '#F5A623',
-        'tactical-dim': '#D4901F',
+        // Gymie brand - Verde vibrante
+        gymie: '#00E04B',
+        'gymie-dim': '#00B83A',
+        'gymie-glow': '#00E04B30',
+
+        // Legacy tactical (mantido por compatibilidade)
+        tactical: '#00E04B',
+        'tactical-dim': '#00B83A',
         
         // Semantic colors
         success: '#22C55E',

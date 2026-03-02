@@ -1,4 +1,16 @@
--e 
 # Environment files
 *.env
 *.env.*
+!frontend/.env.production.example
+
+# Dependencies
+node_modules/
+
+# Local caches/artifacts
+.vite/
+.claude/
+frontend/build/
+
+# Local exploratory assets (not part of app runtime)
+1000_GIFS_DE_TREINO.zip
+Bavegacao/

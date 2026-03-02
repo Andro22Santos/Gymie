@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Trophy, Lock, ChevronLeft, Download, FileText, Dumbbell, UtensilsCrossed, Droplet, Star, Zap } from 'lucide-react';
+import Confetti from '../components/Confetti';
 
 const CATEGORY_LABELS = {
   streak: { label: 'Consistência', icon: Zap, color: 'orange-400' },
@@ -17,11 +18,16 @@ export default function AchievementsPage() {
   const [loading, setLoading] = useState(true);
   const [showExport, setShowExport] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
       const res = await api.get('/api/achievements');
       setData(res.data);
+      // Trigger confetti if new achievements were unlocked
+      if ((res.data.newly_unlocked || []).length > 0) {
+        setTimeout(() => setCelebrate(true), 400);
+      }
     } catch (err) { console.error(err); }
     setLoading(false);
   }, []);
@@ -57,8 +63,20 @@ export default function AchievementsPage() {
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-[60vh]">
-      <div className="w-8 h-8 border-2 border-gymie border-t-transparent rounded-full animate-spin" />
+    <div className="px-4 pt-5 pb-24 max-w-md mx-auto space-y-4">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="skeleton w-9 h-9 rounded-full" />
+        <div className="space-y-2 flex-1">
+          <div className="skeleton h-7 w-32" />
+          <div className="skeleton h-4 w-44" />
+        </div>
+        <div className="skeleton w-10 h-10 rounded-gymie-sm" />
+      </div>
+      <div className="skeleton h-20 w-full rounded-gymie" />
+      <div className="skeleton h-16 w-full rounded-gymie" />
+      <div className="grid grid-cols-2 gap-2">
+        {[0,1,2,3,4,5].map(i => <div key={i} className="skeleton h-28 rounded-gymie" />)}
+      </div>
     </div>
   );
 
@@ -76,6 +94,8 @@ export default function AchievementsPage() {
 
   return (
     <div className="px-4 pt-5 pb-24 max-w-md mx-auto">
+      <Confetti active={celebrate} onComplete={() => setCelebrate(false)} />
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate(-1)} className="p-2 hover:bg-surface-hl rounded-full transition-colors">

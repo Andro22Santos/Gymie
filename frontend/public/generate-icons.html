@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Gerar Ícones — Gymie PWA</title>
+  <style>
+    body { font-family: sans-serif; background: #050505; color: #fafafa; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 24px; padding: 32px; box-sizing: border-box; }
+    h2 { color: #00E04B; margin: 0; font-size: 1.5rem; }
+    p  { color: #525252; margin: 0; text-align: center; max-width: 480px; }
+    .previews { display: flex; gap: 32px; flex-wrap: wrap; justify-content: center; }
+    .item { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .item img { border: 2px solid #00E04B30; border-radius: 12px; }
+    button { padding: 10px 20px; background: #00E04B; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: #000; font-size: 0.9rem; transition: opacity .2s; }
+    button:hover { opacity: .85; }
+    .note { background: #111; border: 1px solid #1f1f1f; border-radius: 10px; padding: 16px 20px; max-width: 480px; }
+    code { color: #00E04B; background: #1a1a1a; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>Gerador de Ícones Gymie</h2>
+  <p>Clique em cada botão para baixar o ícone. Depois coloque os dois arquivos em <code>frontend/public/icons/</code></p>
+  <div class="previews" id="previews"></div>
+  <div class="note">
+    <p><strong style="color:#fafafa">Para Play Store (TWA)</strong> você também vai precisar de:</p>
+    <ul style="color:#a3a3a3;margin-top:8px;line-height:1.8">
+      <li>Um <code>.keystore</code> assinado</li>
+      <li>Configurar o <code>assetlinks.json</code> no servidor</li>
+      <li>Usar o <a href="https://www.pwabuilder.com" target="_blank" style="color:#00E04B">PWA Builder</a> para gerar o APK/AAB</li>
+    </ul>
+  </div>
+
+  <script>
+    function makeIcon(size) {
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+
+      // Background
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, size, size);
+
+      // Outer glow circle
+      const grd = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size*0.48);
+      grd.addColorStop(0, '#00E04B25');
+      grd.addColorStop(1, '#00E04B00');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, size, size);
+
+      // Border circle
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size*0.44, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00E04B';
+      ctx.lineWidth = size * 0.035;
+      ctx.stroke();
+
+      // Letter G
+      ctx.fillStyle = '#00E04B';
+      ctx.font = `bold ${size * 0.56}px "Arial Black", Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('G', size / 2, size / 2 + size * 0.03);
+
+      return c;
+    }
+
+    [192, 512].forEach(size => {
+      const canvas = makeIcon(size);
+      const url = canvas.toDataURL('image/png');
+      const displaySize = Math.min(size, 150);
+
+      const div = document.createElement('div');
+      div.className = 'item';
+
+      const img = document.createElement('img');
+      img.src = url;
+      img.width = displaySize;
+      img.height = displaySize;
+
+      const label = document.createElement('p');
+      label.textContent = `icon-${size}.png`;
+      label.style.color = '#a3a3a3';
+
+      const btn = document.createElement('button');
+      btn.textContent = `⬇️  Baixar ${size}×${size}`;
+      btn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `icon-${size}.png`;
+        a.click();
+      };
+
+      div.append(img, label, btn);
+      document.getElementById('previews').appendChild(div);
+    });
+  </script>
+</body>
+</html>
